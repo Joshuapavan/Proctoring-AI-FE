@@ -1,7 +1,7 @@
 import React, { useEffect, useRef, useState } from "react";
+import Actions from './Actions';
 import './App.css';
 import Logs from './Logs';
-import Actions from './Actions';
 
 const Proctoring = () => {
   const videoRef = useRef(null);
@@ -9,6 +9,8 @@ const Proctoring = () => {
   const ws = useRef(null);
   const [wsConnected, setWsConnected] = useState(false);
   const [videoOn, setVideoOn] = useState(true);
+  const [actionCount, setActionCount] = useState(0);
+  const [dropped, setDropped] = useState(false);
 
   const connectWebSocket = () => {
     ws.current = new WebSocket("ws://127.0.0.1:8000/ws");
@@ -24,6 +26,9 @@ const Proctoring = () => {
       if (data.logs) {
         console.log("Logs received:", data.logs);
         setLogs((prevLogs) => [...prevLogs, ...data.logs]);
+        if (data.logs.some(log => log.event.includes("phone detected"))) {
+          incrementActionCount();
+        }
       }
     };
 
@@ -99,7 +104,43 @@ const Proctoring = () => {
       ws.current.close();
     }
     alert("You have been dropped from the exam.");
+    setDropped(true);
   };
+
+  const incrementActionCount = () => {
+    setActionCount(prevCount => {
+      const newCount = prevCount + 1;
+      if (newCount >= 3) {
+        dropFromExam();
+      }
+      return newCount;
+    });
+  };
+
+  const handlePaste = () => {
+    incrementActionCount();
+  };
+
+  const handleVisibilityChange = () => {
+    if (document.visibilityState === 'hidden') {
+      incrementActionCount();
+    }
+  };
+
+  useEffect(() => {
+    document.addEventListener("visibilitychange", handleVisibilityChange);
+    return () => {
+      document.removeEventListener("visibilitychange", handleVisibilityChange);
+    };
+  }, []);
+
+  if (dropped) {
+    return (
+      <div className="thank-you-screen">
+        <h1>Thank you for participating in the exam.</h1>
+      </div>
+    );
+  }
 
   return (
     <div className="proctoring-container">
@@ -108,6 +149,7 @@ const Proctoring = () => {
       </div>
       <div className="right-container">
         <Logs logs={logs} />
+        <input type="text" className="textBox" onPaste={handlePaste} />
         <Actions toggleVideo={toggleVideo} dropFromExam={dropFromExam} videoOn={videoOn} />
       </div>
     </div>

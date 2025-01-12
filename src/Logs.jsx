@@ -6,7 +6,7 @@ const Logs = ({ logs }) => {
     <div className="logs-container">
       <h2>Logs : </h2>
       <ul>
-        {logs.map((log, index) => (
+        {[...logs].reverse().map((log, index) => (
           <li key={index} style={{ marginBottom: "10px" }}>
             <strong>{new Date(log.time).toLocaleTimeString()}:</strong> {log.event}
           </li>
