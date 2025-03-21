@@ -133,6 +133,7 @@ button:focus-visible {
   background: #1e1e1e;
   padding: 20px;
   overflow-y: scroll;
+  max-height: 200px;
 }
 
 .bottom-actions {
@@ -1121,6 +1122,29 @@ capture-btn:hover {
 .finish-exam-btn:hover {
   background: #c0392b;
   transform: translateY(-2px);
+}
+
+.logs-section {
+  padding: 1rem;
+  background: rgba(0, 0, 0, 0.2);
+  border-radius: 8px;
+  margin-top: 1rem;
+}
+
+.log-entry {
+  padding: 0.5rem;
+  border-bottom: 1px solid rgba(255, 255, 255, 0.1);
+  display: flex;
+  gap: 1rem;
+}
+
+.log-time {
+  color: #888;
+  font-size: 0.9rem;
+}
+
+.log-event {
+  color: #fff;
 }
 
 @media (max-width: 768px) {

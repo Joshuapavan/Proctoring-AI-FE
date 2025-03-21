@@ -1,6 +1,8 @@
 import React, { useEffect, useRef, useState } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { Doughnut } from 'react-chartjs-2';
+import Swal from 'sweetalert2';
+import WebSocketHandler from '../utils/WebSocketHandler';
 import {
   Chart as ChartJS,
   ArcElement,
@@ -49,59 +51,46 @@ const Dashboard = () => {
   const [examId, setExamId] = useState(localStorage.getItem('userId') || '1');
   const [timeRemaining, setTimeRemaining] = useState(45 * 60); // 45 minutes in seconds
   const timerRef = useRef(null);
+  const [isPaused, setIsPaused] = useState(false);
+  const reconnectTimeoutRef = useRef(null);
+  const lastTimeRef = useRef(null);
+  const [logs, setLogs] = useState([]);
+  const wsHandler = useRef(null);
+  const streamRef = useRef(null);
+  const canvasRef = useRef(document.createElement('canvas'));
 
   useEffect(() => {
-    const userId = localStorage.getItem('userId') || '1'; // Get actual user ID
+    const userId = localStorage.getItem('userId');
     const token = localStorage.getItem('token');
 
-    if (!token) {
+    if (!token || !userId) {
       navigate('/login');
       return;
     }
 
-    // Initialize WebSocket
-    wsRef.current = new WebSocket(`ws://localhost:8080/ws/${userId}`);
-
-    wsRef.current.onopen = () => {
-      console.log('WebSocket Connected');
-      setConnected(true);
-      startVideo();
-    };
-
-    wsRef.current.onclose = () => {
-      console.log('WebSocket Disconnected');
-      setConnected(false);
-      // Redirect to home if connection is lost during exam
-      if (!showScore) {
-        Swal.fire({
-          icon: 'error',
-          title: 'Connection Lost',
-          text: 'Your exam session has ended due to connection loss.',
-          background: '#2a2a2a',
-          color: '#fff',
-          confirmButtonColor: '#646cff'
-        }).then(() => {
-          navigate('/');
-        });
-      }
-    };
-
-    wsRef.current.onerror = (error) => {
-      console.error('WebSocket Error:', error);
-    };
+    // Initialize WebSocket handler
+    wsHandler.current = new WebSocketHandler(userId, handleLogs);
+    startVideo();
 
     return () => {
-      if (wsRef.current) {
-        wsRef.current.close();
-      }
-      if (videoRef.current?.srcObject) {
-        videoRef.current.srcObject.getTracks().forEach(track => track.stop());
-      }
+      cleanup();
     };
-  }, [navigate, showScore]);
+  }, [navigate]);
+
+  const handleLogs = (newLogs) => {
+    setLogs(prev => [...prev, ...newLogs]);
+    // Update connection status based on logs if needed
+    setConnected(true);
+    setIsPaused(false);
+  };
 
   useEffect(() => {
-    if (!showScore && connected) {
+    if (timerRef.current) {
+      clearInterval(timerRef.current);
+      timerRef.current = null;
+    }
+
+    if (!showScore && connected && !isPaused) {
       timerRef.current = setInterval(() => {
         setTimeRemaining(prev => {
           if (prev <= 0) {
@@ -112,38 +101,64 @@ const Dashboard = () => {
           return prev - 1;
         });
       }, 1000);
-
-      return () => {
-        if (timerRef.current) {
-          clearInterval(timerRef.current);
-        }
-      };
     }
-  }, [connected, showScore]);
+
+    return () => {
+      if (timerRef.current) {
+        clearInterval(timerRef.current);
+      }
+    };
+  }, [connected, showScore, isPaused]);
 
   const startVideo = async () => {
     try {
       const stream = await navigator.mediaDevices.getUserMedia({ 
-        video: { width: 640, height: 480 }
-      });
-      videoRef.current.srcObject = stream;
-
-      // Start sending frames
-      const canvas = document.createElement('canvas');
-      canvas.width = 640;
-      canvas.height = 480;
-      const ctx = canvas.getContext('2d');
-
-      setInterval(() => {
-        if (videoRef.current && wsRef.current?.readyState === WebSocket.OPEN) {
-          ctx.drawImage(videoRef.current, 0, 0, canvas.width, canvas.height);
-          canvas.toBlob(blob => {
-            wsRef.current.send(blob);
-          }, 'image/jpeg', 0.7);
+        video: { 
+          width: 640, 
+          height: 480,
+          facingMode: "user"
         }
-      }, 1000); // Send frame every second
+      });
+
+      streamRef.current = stream;
+      videoRef.current.srcObject = stream;
+      wsHandler.current.connect();
+      
+      // Setup canvas
+      canvasRef.current.width = 640;
+      canvasRef.current.height = 480;
+      startSendingFrames();
     } catch (err) {
       console.error('Error accessing webcam:', err);
+    }
+  };
+
+  const startSendingFrames = () => {
+    const context = canvasRef.current.getContext('2d');
+    const sendInterval = 1000; // Send frame every second
+
+    const intervalId = setInterval(() => {
+      if (videoRef.current?.readyState === 4) {
+        context.drawImage(videoRef.current, 0, 0, canvasRef.current.width, canvasRef.current.height);
+        canvasRef.current.toBlob(blob => {
+          wsHandler.current?.sendFrame(blob);
+        }, 'image/jpeg', 0.8);
+      }
+    }, sendInterval);
+
+    return () => clearInterval(intervalId);
+  };
+
+  const cleanup = () => {
+    // Stop camera stream
+    if (streamRef.current) {
+      streamRef.current.getTracks().forEach(track => track.stop());
+    }
+    // Disconnect WebSocket
+    wsHandler.current?.disconnect();
+    // Clear timer
+    if (timerRef.current) {
+      clearInterval(timerRef.current);
     }
   };
 
@@ -154,14 +169,8 @@ const Dashboard = () => {
         throw new Error('User ID not found');
       }
 
-      // First cleanup all connections
-      if (wsRef.current) {
-        wsRef.current.close();
-        setConnected(false);
-      }
-      if (videoRef.current?.srcObject) {
-        videoRef.current.srcObject.getTracks().forEach(track => track.stop());
-      }
+      // Cleanup connections before fetching summary
+      cleanup();
 
       // Then fetch summary with correct user ID
       const response = await fetch(`http://localhost:8080/api/v1/exam/summary/${userId}`);
@@ -244,12 +253,12 @@ const Dashboard = () => {
     return `${minutes.toString().padStart(2, '0')}:${remainingSeconds.toString().padStart(2, '0')}`;
   };
 
-  const handleFinishExam = () => {
+  const handleFinishExam = async () => {
     if (timerRef.current) {
       clearInterval(timerRef.current);
     }
 
-    Swal.fire({
+    const result = await Swal.fire({
       title: timeRemaining <= 0 ? 'Time\'s Up!' : 'Finish Exam?',
       text: timeRemaining <= 0 
         ? 'Your time has expired. The exam will be submitted now.'
@@ -262,24 +271,29 @@ const Dashboard = () => {
       cancelButtonColor: '#e74c3c',
       confirmButtonText: 'Submit Exam',
       cancelButtonText: 'Cancel'
-    }).then((result) => {
-      if (result.isConfirmed || timeRemaining <= 0) {
-        setShowScore(true);
-        fetchSummary();
-      }
     });
+
+    if (result.isConfirmed || timeRemaining <= 0) {
+      try {
+        setShowScore(true);
+        await fetchSummary(); // This will also handle cleanup
+      } catch (error) {
+        console.error('Error finishing exam:', error);
+        Swal.fire({
+          icon: 'error',
+          title: 'Error',
+          text: 'Failed to submit exam. Please try again.',
+          background: '#2a2a2a',
+          color: '#fff',
+          confirmButtonColor: '#646cff'
+        });
+      }
+    }
   };
 
   // Add cleanup on component unmount
   useEffect(() => {
-    return () => {
-      if (wsRef.current) {
-        wsRef.current.close();
-      }
-      if (videoRef.current?.srcObject) {
-        videoRef.current.srcObject.getTracks().forEach(track => track.stop());
-      }
-    };
+    return cleanup;
   }, []);
 
   return (
@@ -318,8 +332,12 @@ const Dashboard = () => {
           <div className="connection-warning">
             <div className="warning-card">
               <div className="loading-spinner"></div>
-              <h2>Establishing Secure Connection</h2>
-              <p>Please ensure your camera is enabled and wait while we connect you to the exam session...</p>
+              <h2>{isPaused ? 'Reconnecting...' : 'Establishing Connection'}</h2>
+              <p>
+                {isPaused 
+                  ? 'Your exam progress is saved. Please wait while we restore the connection...' 
+                  : 'Please ensure your camera is enabled and wait while we connect you to the exam session...'}
+              </p>
             </div>
           </div>
         ) : showScore ? (
@@ -402,6 +420,21 @@ const Dashboard = () => {
                   </button>
                 ))}
               </div>
+            </div>
+          </div>
+        )}
+        {logs.length > 0 && (
+          <div className="logs-section">
+            <h3>Proctoring Logs</h3>
+            <div className="logs-container">
+              {logs.map((log, index) => (
+                <div key={index} className="log-entry">
+                  <span className="log-time">
+                    {new Date(log.time).toLocaleTimeString()}
+                  </span>
+                  <span className="log-event">{log.event}</span>
+                </div>
+              ))}
             </div>
           </div>
         )}
