@@ -2,7 +2,7 @@ import React from 'react';
 import { BrowserRouter, Routes, Route, Navigate } from 'react-router-dom';
 import Login from './components/Login';
 import Signup from './components/Signup';
-import Proctoring from './App'; // Update this import to point to your Proctoring component
+import Dashboard from './components/Dashboard';
 import './App.css';
 
 const Root = () => {
@@ -21,7 +21,7 @@ const App = () => {
           path="/dashboard" 
           element={
             <ProtectedRoute>
-              <Proctoring />
+              <Dashboard />
             </ProtectedRoute>
           } 
         />

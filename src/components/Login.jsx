@@ -1,6 +1,8 @@
 import React, { useState, useRef } from 'react';
 import { useNavigate } from 'react-router-dom';
 import Modal from './Modal';
+import Swal from 'sweetalert2/dist/sweetalert2.js';
+import 'sweetalert2/dist/sweetalert2.css';
 
 const Login = () => {
   const [email, setEmail] = useState('');
@@ -27,13 +29,23 @@ const Login = () => {
         body: formData,
       });
       
-      if (!response.ok) throw new Error('Login failed');
-      
       const data = await response.json();
+      if (!response.ok) {
+        throw new Error(data.detail || 'Login failed');
+      }
+      
       localStorage.setItem('token', data.token);
+      localStorage.setItem('userId', data.id); // Store user ID
       navigate('/dashboard');
     } catch (err) {
-      setError(err.message);
+      Swal.fire({
+        icon: 'error',
+        title: 'Login Failed',
+        text: err.message,
+        background: '#2a2a2a',
+        color: '#fff',
+        confirmButtonColor: '#646cff'
+      });
     } finally {
       setLoading(false);
     }
@@ -101,7 +113,7 @@ const Login = () => {
   const handleFaceLogin = async () => {
     if (!capturedImage) return;
 
-    const formData = new FormData();
+    const formData = new FormData();;
     formData.append('image', capturedImage);
 
     try {
@@ -111,13 +123,23 @@ const Login = () => {
         body: formData,
       });
       
-      if (!response.ok) throw new Error('Face login failed');
-      
       const data = await response.json();
+      if (!response.ok) {
+        throw new Error(data.detail || 'Face login failed');
+      }
+      
       localStorage.setItem('token', data.token);
+      localStorage.setItem('userId', data.id); // Store user ID
       navigate('/dashboard');
     } catch (err) {
-      setError(err.message);
+      Swal.fire({
+        icon: 'error',
+        title: 'Face Login Failed',
+        text: err.message === 'Face not recognized' ? 'Face not recognized. Please try again.' : err.message,
+        background: '#2a2a2a',
+        color: '#fff',
+        confirmButtonColor: '#646cff'
+      });
     } finally {
       setLoading(false);
       setShowCamera(false);
