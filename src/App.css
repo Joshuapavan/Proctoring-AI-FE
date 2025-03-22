@@ -133,7 +133,6 @@ button:focus-visible {
   background: #1e1e1e;
   padding: 20px;
   overflow-y: scroll;
-  max-height: 200px;
 }
 
 .bottom-actions {
@@ -1124,27 +1123,21 @@ capture-btn:hover {
   transform: translateY(-2px);
 }
 
-.logs-section {
-  padding: 1rem;
-  background: rgba(0, 0, 0, 0.2);
-  border-radius: 8px;
+.logout-btn {
+  width: 100%;
   margin-top: 1rem;
+  padding: 0.75rem;
+  background: #e74c3c;
+  color: white;
+  border: none;
+  border-radius: 8px;
+  font-weight: 600;
+  transition: all 0.3s ease;
 }
 
-.log-entry {
-  padding: 0.5rem;
-  border-bottom: 1px solid rgba(255, 255, 255, 0.1);
-  display: flex;
-  gap: 1rem;
-}
-
-.log-time {
-  color: #888;
-  font-size: 0.9rem;
-}
-
-.log-event {
-  color: #fff;
+.logout-btn:hover {
+  background: #c0392b;
+  transform: translateY(-2px);
 }
 
 @media (max-width: 768px) {

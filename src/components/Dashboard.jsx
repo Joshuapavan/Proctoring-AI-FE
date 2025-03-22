@@ -2,7 +2,6 @@ import React, { useEffect, useRef, useState } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { Doughnut } from 'react-chartjs-2';
 import Swal from 'sweetalert2';
-import WebSocketHandler from '../utils/WebSocketHandler';
 import {
   Chart as ChartJS,
   ArcElement,
@@ -10,6 +9,9 @@ import {
   Legend,
   Title
 } from 'chart.js';
+import WebSocketHandler from '../utils/WebSocketHandler';
+import { examService } from '../services/examService';
+import { authService } from '../services/authService';
 
 ChartJS.register(
   ArcElement,
@@ -54,37 +56,153 @@ const Dashboard = () => {
   const [isPaused, setIsPaused] = useState(false);
   const reconnectTimeoutRef = useRef(null);
   const lastTimeRef = useRef(null);
-  const [logs, setLogs] = useState([]);
-  const wsHandler = useRef(null);
-  const streamRef = useRef(null);
-  const canvasRef = useRef(document.createElement('canvas'));
+  const wsHandlerRef = useRef(null);
+  const frameIntervalRef = useRef(null);
+  const [examStarted, setExamStarted] = useState(false);
+  const [isReady, setIsReady] = useState(false);
+  const [isInitializing, setIsInitializing] = useState(true);
 
+  // Mount effect - Only run once on component mount
   useEffect(() => {
-    const userId = localStorage.getItem('userId');
     const token = localStorage.getItem('token');
-
-    if (!token || !userId) {
-      navigate('/login');
+    if (!token) {
+      navigate('/login', { replace: true });
       return;
     }
+    
+    // Reset states before initialization
+    setConnected(false);
+    setIsReady(false);
+    setExamStarted(false);
+    setIsInitializing(true);
 
-    // Initialize WebSocket handler
-    wsHandler.current = new WebSocketHandler(userId, handleLogs);
-    startVideo();
+    initializeExam();
 
-    return () => {
-      cleanup();
-    };
-  }, [navigate]);
+    return () => cleanup(false); // Cleanup without navigation on unmount
+  }, []);
 
-  const handleLogs = (newLogs) => {
-    setLogs(prev => [...prev, ...newLogs]);
-    // Update connection status based on logs if needed
-    setConnected(true);
-    setIsPaused(false);
+  const handleApiError = async (error, action) => {
+    console.error(`Error during ${action}:`, error);
+    const result = await Swal.fire({
+        icon: 'error',
+        title: 'Connection Error',
+        text: `Failed to ${action}. Would you like to retry?`,
+        background: '#2a2a2a',
+        color: '#fff',
+        showCancelButton: true,
+        confirmButtonColor: '#646cff',
+        cancelButtonColor: '#e74c3c',
+        confirmButtonText: 'Retry',
+        cancelButtonText: 'Cancel'
+    });
+
+    return result.isConfirmed;
   };
 
+  const initializeExam = async () => {
+    try {
+        const { token, userId } = authService.getAuth();
+        if (!token || !userId) {
+            throw new Error('Authentication required');
+        }
+
+        // Start exam session
+        const examResponse = await examService.startExam(userId);
+        console.log('Exam session started:', examResponse);
+
+        // Initialize components one by one
+        await startVideo();
+        await new Promise(resolve => setTimeout(resolve, 500)); // Give camera time to initialize
+
+        // Initialize WebSocket
+        wsHandlerRef.current = new WebSocketHandler(userId, handleWebSocketMessage);
+        
+        // Connect WebSocket
+        await wsHandlerRef.current.connect(
+            examResponse.sessionId,
+            examResponse.wsUrl,
+            examResponse.wsConfig
+        );
+
+        // Update states in sequence
+        setExamId(userId);
+        setConnected(true);
+        setIsReady(true);
+        setExamStarted(true);
+        setIsInitializing(false);
+        
+        console.log('Initialization complete');
+
+    } catch (error) {
+        console.error('Initialization failed:', error);
+        cleanup(false);
+        
+        if (error.message.includes('auth')) {
+            navigate('/login', { replace: true });
+        } else {
+            Swal.fire({
+                icon: 'error',
+                title: 'Connection Error',
+                text: error.message,
+                background: '#2a2a2a',
+                color: '#fff'
+            });
+        }
+    }
+  };
+
+  const handleWebSocketMessage = (data) => {
+    console.log('WebSocket message:', data);
+    if (data.type === 'keepalive') {
+        // Update all states at once to trigger render
+        Promise.all([
+            setConnected(true),
+            setIsReady(true),
+            setExamStarted(true),
+            setIsInitializing(false)
+        ]);
+    }
+  };
+
+  const startSendingFrames = () => {
+    if (frameIntervalRef.current) {
+      clearInterval(frameIntervalRef.current);
+    }
+
+    const canvas = document.createElement('canvas');
+    canvas.width = 640;
+    canvas.height = 480;
+    const ctx = canvas.getContext('2d');
+
+    frameIntervalRef.current = setInterval(() => {
+      if (videoRef.current && wsHandlerRef.current?.isAccepted) {
+        ctx.drawImage(videoRef.current, 0, 0, canvas.width, canvas.height);
+        canvas.toBlob(
+          (blob) => {
+            if (blob && wsHandlerRef.current) {
+              wsHandlerRef.current.sendFrame(blob);
+            }
+          },
+          'image/jpeg',
+          0.7
+        );
+      }
+    }, 1000);
+  };
+
+  // Update state sync effect
   useEffect(() => {
+    const updateState = () => {
+        if (wsHandlerRef.current?.isAccepted && !isInitializing) {
+            setConnected(true);
+            setIsReady(true);
+            setExamStarted(true);
+        }
+    };
+    updateState();
+}, [wsHandlerRef.current?.isAccepted, isInitializing]);
+
+useEffect(() => {
     if (timerRef.current) {
       clearInterval(timerRef.current);
       timerRef.current = null;
@@ -116,49 +234,92 @@ const Dashboard = () => {
         video: { 
           width: 640, 
           height: 480,
-          facingMode: "user"
-        }
+          frameRate: { ideal: 10 }
+        } 
       });
-
-      streamRef.current = stream;
-      videoRef.current.srcObject = stream;
-      wsHandler.current.connect();
       
-      // Setup canvas
-      canvasRef.current.width = 640;
-      canvasRef.current.height = 480;
-      startSendingFrames();
+      if (videoRef.current) {
+        videoRef.current.srcObject = stream;
+      }
+
+      // Create canvas once
+      const canvas = document.createElement('canvas');
+      canvas.width = 640;
+      canvas.height = 480;
+      const ctx = canvas.getContext('2d');
+
+      if (frameIntervalRef.current) {
+        clearInterval(frameIntervalRef.current);
+      }
+
+      frameIntervalRef.current = setInterval(() => {
+        if (videoRef.current && wsHandlerRef.current?.isAccepted && !isPaused) {
+          ctx.drawImage(videoRef.current, 0, 0, canvas.width, canvas.height);
+          canvas.toBlob(
+            (blob) => {
+              if (blob) {
+                wsHandlerRef.current.sendFrame(blob);
+              }
+            },
+            'image/jpeg',
+            0.7
+          );
+        }
+      }, 1000);
+
     } catch (err) {
       console.error('Error accessing webcam:', err);
+      Swal.fire({
+        icon: 'error',
+        title: 'Camera Error',
+        text: 'Unable to access webcam. Please ensure camera permissions are granted.',
+        background: '#2a2a2a',
+        color: '#fff',
+        confirmButtonColor: '#646cff'
+      });
     }
   };
 
-  const startSendingFrames = () => {
-    const context = canvasRef.current.getContext('2d');
-    const sendInterval = 1000; // Send frame every second
-
-    const intervalId = setInterval(() => {
-      if (videoRef.current?.readyState === 4) {
-        context.drawImage(videoRef.current, 0, 0, canvasRef.current.width, canvasRef.current.height);
-        canvasRef.current.toBlob(blob => {
-          wsHandler.current?.sendFrame(blob);
-        }, 'image/jpeg', 0.8);
-      }
-    }, sendInterval);
-
-    return () => clearInterval(intervalId);
+  const endExamSession = async (userId) => {
+    try {
+      await examService.endExam(userId);
+      setExamStarted(false);
+      return true;
+    } catch (error) {
+      console.error('Error ending exam session:', error);
+      throw error;
+    }
   };
 
-  const cleanup = () => {
-    // Stop camera stream
-    if (streamRef.current) {
-      streamRef.current.getTracks().forEach(track => track.stop());
+  const logout = () => {
+    localStorage.removeItem('token');
+    localStorage.removeItem('userId');
+    navigate('/login');
+  };
+
+  const cleanup = (shouldNavigate = true) => {
+    if (frameIntervalRef.current) {
+      clearInterval(frameIntervalRef.current);
     }
-    // Disconnect WebSocket
-    wsHandler.current?.disconnect();
-    // Clear timer
+    if (wsHandlerRef.current) {
+      wsHandlerRef.current.disconnect();
+    }
+    if (videoRef.current?.srcObject) {
+      const tracks = videoRef.current.srcObject.getTracks();
+      tracks.forEach(track => track.stop());
+      videoRef.current.srcObject = null;
+    }
     if (timerRef.current) {
       clearInterval(timerRef.current);
+    }
+
+    setConnected(false);
+    setIsReady(false);
+    setExamStarted(false);
+
+    if (shouldNavigate) {
+        authService.logout();
+        navigate('/login', { replace: true });
     }
   };
 
@@ -169,10 +330,13 @@ const Dashboard = () => {
         throw new Error('User ID not found');
       }
 
-      // Cleanup connections before fetching summary
+      // First end the exam session
+      await endExamSession(userId);
+      
+      // Then cleanup resources
       cleanup();
 
-      // Then fetch summary with correct user ID
+      // Finally fetch the summary
       const response = await fetch(`http://localhost:8080/api/v1/exam/summary/${userId}`);
       const data = await response.json();
       if (!response.ok) {
@@ -180,57 +344,16 @@ const Dashboard = () => {
       }
       setSummary(data);
     } catch (err) {
-      console.error('Error fetching summary:', err);
+      console.error('Error in exam completion:', err);
       Swal.fire({
         icon: 'error',
         title: 'Error',
-        text: err.message || 'Failed to fetch exam summary',
+        text: err.message || 'Failed to complete exam',
         background: '#2a2a2a',
         color: '#fff',
         confirmButtonColor: '#646cff'
       });
     }
-  };
-
-  const renderSummaryChart = () => {
-    if (!summary) return null;
-
-    const data = {
-      labels: ['Compliant', 'Non-Compliant'],
-      datasets: [{
-        data: [summary.overall_compliance, (100 - summary.overall_compliance)],
-        backgroundColor: ['#2ecc71', '#e74c3c'],
-        borderColor: ['#27ae60', '#c0392b'],
-        borderWidth: 1,
-      }]
-    };
-
-    const options = {
-      responsive: true,
-      maintainAspectRatio: false,
-      plugins: {
-        legend: {
-          position: 'bottom',
-          labels: {
-            color: '#fff',
-            padding: 20,
-            font: {
-              size: 14
-            }
-          }
-        }
-      },
-      animation: {
-        animateScale: true,
-        animateRotate: true
-      }
-    };
-
-    return (
-      <div className="summary-chart">
-        <Doughnut data={data} options={options} />
-      </div>
-    );
   };
 
   const handleAnswer = async (answer) => {
@@ -296,149 +419,253 @@ const Dashboard = () => {
     return cleanup;
   }, []);
 
+  // Add exam pause/resume handler for page visibility
+  useEffect(() => {
+    const handleVisibilityChange = async () => {
+      const userId = localStorage.getItem('userId');
+      if (!userId || !examStarted || !connected) return;
+
+      if (document.hidden) {
+        try {
+          await examService.pauseExam(userId);
+          setIsPaused(true);
+        } catch (error) {
+          console.error('Failed to pause exam:', error);
+        }
+      } else {
+        try {
+          await examService.resumeExam(userId);
+          setIsPaused(false);
+        } catch (error) {
+          console.error('Failed to resume exam:', error);
+        }
+      }
+    };
+
+    // Only add visibility listener after exam has started
+    if (examStarted && connected) {
+      document.addEventListener('visibilitychange', handleVisibilityChange);
+      return () => {
+        document.removeEventListener('visibilitychange', handleVisibilityChange);
+      };
+    }
+  }, [examStarted, connected]);
+
+  // Handle page refresh
+  useEffect(() => {
+    const handleBeforeUnload = async (event) => {
+      if (examStarted) {
+        const userId = localStorage.getItem('userId');
+        if (userId) {
+          await examService.pauseExam(userId);
+        }
+      }
+    };
+
+    window.addEventListener('beforeunload', handleBeforeUnload);
+    return () => {
+      window.removeEventListener('beforeunload', handleBeforeUnload);
+    };
+  }, [examStarted]);
+
+  const handleLogout = () => {
+    cleanup();
+    authService.logout();
+    navigate('/login');
+  };
+
+  const renderSummaryChart = () => {
+    if (!summary) return null;
+
+    const data = {
+      labels: ['Compliant', 'Non-Compliant'],
+      datasets: [{
+        data: [summary.overall_compliance, (100 - summary.overall_compliance)],
+        backgroundColor: ['#2ecc71', '#e74c3c'],
+        borderColor: ['#27ae60', '#c0392b'],
+        borderWidth: 1,
+      }]
+    };
+
+    const options = {
+      responsive: true,
+      maintainAspectRatio: false,
+      plugins: {
+        legend: {
+          position: 'bottom',
+          labels: {
+            color: '#fff',
+            padding: 20,
+            font: {
+              size: 14
+            }
+          }
+        }
+      },
+      animation: {
+        animateScale: true,
+        animateRotate: true
+      }
+    };
+
+    return (
+      <div className="summary-chart">
+        <Doughnut data={data} options={options} />
+      </div>
+    );
+  };
+
+  const renderContent = () => {
+    if (isInitializing) {
+        return (
+            <div className="loading-overlay">
+                <div className="loading-spinner"></div>
+                <h2>Initializing Exam Session...</h2>
+            </div>
+        );
+    }
+
+    return (
+        <>
+            <aside className="proctor-sidebar">
+                <div className="video-monitor">
+                    <video
+                        ref={videoRef}
+                        autoPlay
+                        playsInline
+                        muted
+                        className="webcam-feed"
+                    />
+                    <div className={`status-indicator ${connected ? 'active' : ''}`}>
+                        <span className="status-dot"></span>
+                        {connected ? "Monitoring Active" : "Connecting..."}
+                    </div>
+                </div>
+                <div className="exam-info">
+                    <h3>Java Programming</h3>
+                    <div className="exam-stats">
+                        <div className="stat">
+                            <span>Questions</span>
+                            <strong>{javaQuestions.length}</strong>
+                        </div>
+                        <div className="stat">
+                            <span>Progress</span>
+                            <strong>{currentQuestion + 1}/{javaQuestions.length}</strong>
+                        </div>
+                    </div>
+                    <button 
+                        onClick={handleLogout}
+                        className="logout-btn"
+                    >
+                        Logout
+                    </button>
+                </div>
+            </aside>
+
+            <main className="exam-content">
+                {connected && !showScore && (
+                    <div className="question-card">
+                        <div className="question-header">
+                            <span className="question-number">Question {currentQuestion + 1}</span>
+                            <div className={`timer-display ${timeRemaining <= 300 ? 'timer-warning' : ''}`}>
+                                Time Remaining: {formatTime(timeRemaining)}
+                            </div>
+                            <button 
+                                onClick={handleFinishExam}
+                                className="finish-exam-btn"
+                            >
+                                Finish Exam
+                            </button>
+                        </div>
+                        
+                        <div className="question-content">
+                            <h3>{javaQuestions[currentQuestion].question}</h3>
+                            <div className="options-grid">
+                                {javaQuestions[currentQuestion].options.map((option) => (
+                                    <button
+                                        key={option}
+                                        onClick={() => handleAnswer(option)}
+                                        className="option-button"
+                                    >
+                                        {option}
+                                    </button>
+                                ))}
+                            </div>
+                        </div>
+                    </div>
+                )}
+
+                {!connected && (
+                    <div className="connection-warning">
+                        <div className="warning-card">
+                            <div className="loading-spinner"></div>
+                            <h2>Establishing Connection</h2>
+                            <p>Please ensure your camera is enabled and wait while we connect you to the exam session...</p>
+                        </div>
+                    </div>
+                )}
+
+                {showScore && (
+                    <div className="results-container">
+                        <div className="score-card">
+                            <h2>Exam Complete!</h2>
+                            <div className="final-score">
+                                <div className="score-circle">
+                                    <strong>{score}</strong>
+                                    <span>/{javaQuestions.length}</span>
+                                </div>
+                                <p>Questions Correct</p>
+                            </div>
+                            
+                            {summary && (
+                                <div className="summary-dashboard">
+                                    <div className="summary-chart-container">
+                                        <h3>Proctoring Results</h3>
+                                        {renderSummaryChart()}
+                                    </div>
+                                    
+                                    <div className="metrics-grid">
+                                        <div className="metric-card">
+                                            <span>Duration</span>
+                                            <strong>{summary.total_duration.toFixed(1)} min</strong>
+                                        </div>
+                                        <div className="metric-card">
+                                            <span>Face Detection</span>
+                                            <strong>{summary.face_detection_rate.toFixed(1)}%</strong>
+                                        </div>
+                                    </div>
+
+                                    <div className="activity-log">
+                                        <h4>Suspicious Activity Log</h4>
+                                        <div className="activity-list">
+                                            {Object.entries(summary.suspicious_activities).map(([key, value]) => (
+                                                <div key={key} className="activity-item">
+                                                    <span>{key.replace(/_/g, ' ')}</span>
+                                                    <strong>{value}</strong>
+                                                </div>
+                                            ))}
+                                        </div>
+                                    </div>
+
+                                    <div className="completion-actions">
+                                        <p>Thank you for completing the exam!</p>
+                                        <button onClick={() => navigate('/')} className="exit-btn">
+                                            Return to Dashboard
+                                        </button>
+                                    </div>
+                                </div>
+                            )}
+                        </div>
+                    </div>
+                )}
+            </main>
+        </>
+    );
+};
+
   return (
     <div className="dashboard-layout">
-      <aside className="proctor-sidebar">
-        <div className="video-monitor">
-          <video
-            ref={videoRef}
-            autoPlay
-            playsInline
-            muted
-            className="webcam-feed"
-          />
-          <div className={`status-indicator ${connected ? 'active' : ''}`}>
-            <span className="status-dot"></span>
-            {connected ? "Monitoring Active" : "Connecting..."}
-          </div>
-        </div>
-        <div className="exam-info">
-          <h3>Java Programming</h3>
-          <div className="exam-stats">
-            <div className="stat">
-              <span>Questions</span>
-              <strong>{javaQuestions.length}</strong>
-            </div>
-            <div className="stat">
-              <span>Progress</span>
-              <strong>{currentQuestion + 1}/{javaQuestions.length}</strong>
-            </div>
-          </div>
-        </div>
-      </aside>
-
-      <main className="exam-content">
-        {!connected ? (
-          <div className="connection-warning">
-            <div className="warning-card">
-              <div className="loading-spinner"></div>
-              <h2>{isPaused ? 'Reconnecting...' : 'Establishing Connection'}</h2>
-              <p>
-                {isPaused 
-                  ? 'Your exam progress is saved. Please wait while we restore the connection...' 
-                  : 'Please ensure your camera is enabled and wait while we connect you to the exam session...'}
-              </p>
-            </div>
-          </div>
-        ) : showScore ? (
-          <div className="results-container">
-            <div className="score-card">
-              <h2>Exam Complete!</h2>
-              <div className="final-score">
-                <div className="score-circle">
-                  <strong>{score}</strong>
-                  <span>/{javaQuestions.length}</span>
-                </div>
-                <p>Questions Correct</p>
-              </div>
-              
-              {summary && (
-                <div className="summary-dashboard">
-                  <div className="summary-chart-container">
-                    <h3>Proctoring Results</h3>
-                    {renderSummaryChart()}
-                  </div>
-                  
-                  <div className="metrics-grid">
-                    <div className="metric-card">
-                      <span>Duration</span>
-                      <strong>{summary.total_duration.toFixed(1)} min</strong>
-                    </div>
-                    <div className="metric-card">
-                      <span>Face Detection</span>
-                      <strong>{summary.face_detection_rate.toFixed(1)}%</strong>
-                    </div>
-                  </div>
-
-                  <div className="activity-log">
-                    <h4>Suspicious Activity Log</h4>
-                    <div className="activity-list">
-                      {Object.entries(summary.suspicious_activities).map(([key, value]) => (
-                        <div key={key} className="activity-item">
-                          <span>{key.replace(/_/g, ' ')}</span>
-                          <strong>{value}</strong>
-                        </div>
-                      ))}
-                    </div>
-                  </div>
-
-                  <div className="completion-actions">
-                    <p>Thank you for completing the exam!</p>
-                    <button onClick={() => navigate('/')} className="exit-btn">
-                      Return to Dashboard
-                    </button>
-                  </div>
-                </div>
-              )}
-            </div>
-          </div>
-        ) : (
-          <div className="question-card">
-            <div className="question-header">
-              <span className="question-number">Question {currentQuestion + 1}</span>
-              <div className={`timer-display ${timeRemaining <= 300 ? 'timer-warning' : ''}`}>
-                Time Remaining: {formatTime(timeRemaining)}
-              </div>
-              <button 
-                onClick={handleFinishExam}
-                className="finish-exam-btn"
-              >
-                Finish Exam
-              </button>
-            </div>
-            
-            <div className="question-content">
-              <h3>{javaQuestions[currentQuestion].question}</h3>
-              <div className="options-grid">
-                {javaQuestions[currentQuestion].options.map((option) => (
-                  <button
-                    key={option}
-                    onClick={() => handleAnswer(option)}
-                    className="option-button"
-                  >
-                    {option}
-                  </button>
-                ))}
-              </div>
-            </div>
-          </div>
-        )}
-        {logs.length > 0 && (
-          <div className="logs-section">
-            <h3>Proctoring Logs</h3>
-            <div className="logs-container">
-              {logs.map((log, index) => (
-                <div key={index} className="log-entry">
-                  <span className="log-time">
-                    {new Date(log.time).toLocaleTimeString()}
-                  </span>
-                  <span className="log-event">{log.event}</span>
-                </div>
-              ))}
-            </div>
-          </div>
-        )}
-      </main>
+      {renderContent()}
     </div>
   );
 };
