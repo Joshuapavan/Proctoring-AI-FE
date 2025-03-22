@@ -1,4 +1,6 @@
-const BASE_URL = 'http://localhost:8080/api/v1/exam';
+const API_URL = import.meta.env.VITE_API_URL;
+const BASE_URL = `${API_URL}/api/v1/exam`;
+const WS_URL = import.meta.env.VITE_WS_URL;
 
 const retryFetch = async (url, options, retries = 3) => {
     for (let i = 0; i < retries; i++) {
@@ -76,7 +78,7 @@ export const examService = {
             // Simplify WebSocket URL construction
             if (data.wsUrl) {
                 const token = localStorage.getItem('token');
-                data.wsUrl = `http://localhost:8080/ws/${userId}?token=${token}`;
+                data.wsUrl = `${WS_URL}/ws/${userId}?token=${token}`;
             }
 
             return data;

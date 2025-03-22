@@ -1,6 +1,8 @@
 import { store } from '../store/store';
 import { setCredentials, logout } from '../store/authSlice';
 
+const API_URL = import.meta.env.VITE_API_URL;
+
 export const authService = {
     async login(credentials) {
         const formData = new FormData();
@@ -8,7 +10,7 @@ export const authService = {
             formData.append(key, credentials[key]);
         });
 
-        const response = await fetch('http://localhost:8080/api/v1/auth/login', {
+        const response = await fetch(`${API_URL}/api/v1/auth/login`, {
             method: 'POST',
             body: formData
         });
@@ -28,7 +30,7 @@ export const authService = {
             formData.append('email', credentials.email);
             formData.append('password', credentials.password);
 
-            const response = await fetch('http://localhost:8080/api/v1/auth/login/password', {
+            const response = await fetch(`${API_URL}/api/v1/auth/login/password`, {
                 method: 'POST',
                 body: formData
             });

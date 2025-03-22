@@ -137,12 +137,12 @@ const Login = () => {
   const handleFaceLogin = async () => {
     if (!capturedImage) return;
 
-    const formData = new FormData();;
+    const formData = new FormData();
     formData.append('image', capturedImage);
 
     try {
       setLoading(true);
-      const response = await fetch('http://localhost:8080/api/v1/auth/login/face', {
+      const response = await fetch(`${import.meta.env.VITE_API_URL}/api/v1/auth/login/face`, {
         method: 'POST',
         body: formData,
       });
