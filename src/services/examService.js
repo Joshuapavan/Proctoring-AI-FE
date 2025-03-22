@@ -78,7 +78,7 @@ export const examService = {
             // Simplify WebSocket URL construction
             if (data.wsUrl) {
                 const token = localStorage.getItem('token');
-                data.wsUrl = `${WS_URL}/ws/${userId}?token=${token}`;
+                data.wsUrl = `http://localhost:8080/ws/${userId}?token=${token}`;
             }
 
             return data;
