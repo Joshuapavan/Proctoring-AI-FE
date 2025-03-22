@@ -61,6 +61,9 @@ export const authService = {
         localStorage.setItem('token', token);
         localStorage.setItem('userId', userId);
 
+        // Dispatch to Redux store
+        store.dispatch(setCredentials({ token, userId }));
+
         return { token, userId };
     },
 
@@ -79,5 +82,6 @@ export const authService = {
     logout() {
         localStorage.removeItem('token');
         localStorage.removeItem('userId');
+        store.dispatch(logout());
     }
 };

@@ -17,6 +17,15 @@ const Login = () => {
   const navigate = useNavigate();
   const [isModalOpen, setIsModalOpen] = useState(false);
 
+  React.useEffect(() => {
+    // Check if already authenticated
+    const token = localStorage.getItem('token')?.trim();
+    const userId = localStorage.getItem('userId');
+    if (token && userId) {
+        navigate('/exam', { replace: true });
+    }
+  }, [navigate]);
+
   const handleLoginSuccess = async (data) => {
     try {
         await authService.setAuth(data);
@@ -31,8 +40,7 @@ const Login = () => {
             color: '#fff'
         });
 
-        // Force a full page reload to reset all states
-        window.location.href = '/dashboard';
+        navigate('/exam', { replace: true });
     } catch (error) {
         console.error('Login error:', error);
         Swal.fire({

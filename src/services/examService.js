@@ -31,39 +31,55 @@ const getAuthHeaders = () => {
     };
 };
 
+const sendRequest = async (url, options) => {
+    const defaultOptions = {
+        headers: getAuthHeaders(),
+        mode: 'cors'
+    };
+
+    const response = await fetch(url, { ...defaultOptions, ...options });
+    
+    if (!response.ok) {
+        const error = await response.json().catch(() => ({}));
+        throw new Error(error.detail || `Request failed: ${response.status}`);
+    }
+
+    return response.json().catch(() => ({}));
+};
+
 export const examService = {
+    async getSession(userId) {
+        try {
+            const response = await fetch(`${BASE_URL}/session/${userId}`, {
+                headers: getAuthHeaders()
+            });
+            if (!response.ok) throw new Error('Failed to get session');
+            return await response.json();
+        } catch (error) {
+            console.error('Get session error:', error);
+            throw error;
+        }
+    },
+
     async startExam(userId) {
         try {
-            const token = localStorage.getItem('token');
-            if (!token) throw new Error('Authentication required');
-
-            const formData = new FormData();
-            formData.append('userId', userId);
-
             const response = await fetch(`${BASE_URL}/start/${userId}`, {
                 method: 'POST',
-                headers: {
-                    'Authorization': `Bearer ${token.trim()}`
-                },
-                body: formData
+                headers: getAuthHeaders()
             });
 
+            const data = await response.json();
             if (!response.ok) {
-                const error = await response.json();
-                throw new Error(error.message || error.detail || 'Failed to start exam');
+                throw new Error(data.detail || 'Failed to start exam');
             }
 
-            const data = await response.json();
-            console.log('Exam session created:', data);
+            // Simplify WebSocket URL construction
+            if (data.wsUrl) {
+                const token = localStorage.getItem('token');
+                data.wsUrl = `http://localhost:8080/ws/${userId}?token=${token}`;
+            }
 
-            return {
-                status: data.status || 'ready',
-                sessionId: userId,
-                wsUrl: data.wsUrl,
-                wsConfig: {
-                    token: token.trim()
-                }
-            };
+            return data;
         } catch (error) {
             console.error('Start exam error:', error);
             throw error;
@@ -110,23 +126,58 @@ export const examService = {
         }
     },
 
-    async endExam(userId) {
+    async stopExam(userId) {
         try {
-            const token = localStorage.getItem('token');
-            const formData = new FormData();
-            formData.append('userId', userId);
-
-            const response = await retryFetch(`${BASE_URL}/end/${userId}`, {
-                method: 'POST',
-                headers: {
-                    'Authorization': `Bearer ${token.trim()}`
-                },
-                body: formData
+            // Send stop request to server
+            const response = await sendRequest(`${BASE_URL}/stop/${userId}`, {
+                method: 'POST'
             });
-            return await response.json();
+            return response;
         } catch (error) {
-            console.error('End exam error:', error);
-            throw new Error('Failed to end exam. Please try again.');
+            console.error('Stop exam error:', error);
+            throw error;
+        }
+    },
+
+    // Remove endExam method since we're not using it anymore
+
+    async endExamAndLogout(userId) {
+        try {
+            await this.stopExam(userId);
+            authService.logout();
+            return { success: true, message: 'Exam ended and logged out successfully' };
+        } catch (error) {
+            console.error('End exam and logout error:', error);
+            throw error;
+        }
+    },
+
+    async getExamSummary(userId) {
+        try {
+            const response = await sendRequest(`${BASE_URL}/summary/${userId}`);
+            return response;
+        } catch (error) {
+            console.error('Get summary error:', error);
+            throw error;
+        }
+    },
+
+    async clearLogs(userId) {
+        try {
+            const response = await fetch(`${BASE_URL}/clear-logs/${userId}`, {
+                method: 'POST',
+                headers: getAuthHeaders()
+            });
+
+            if (!response.ok) {
+                throw new Error('Failed to clear logs');
+            }
+
+            return true;
+        } catch (error) {
+            console.warn('Clear logs error:', error);
+            // Don't throw error since this is cleanup
+            return false;
         }
     }
 };

@@ -1,282 +1,246 @@
-class WebSocketHandler {
-    constructor(userId, onMessage) {
+export class VideoStreamManager {
+    constructor(wsUrl, token, userId) {
+        this.baseWsUrl = wsUrl;
+        this.token = token;
         this.userId = userId;
-        this.onMessage = onMessage;
-        this.ws = null;
-        this.isConnecting = false;
+        this.socket = null;
+        this.stream = null;
+        this.videoElement = null;
+        this.mediaRecorder = null;
+        this.isStreaming = false;
+        this.chunkInterval = 100;
+        this.onConnectCallback = null;
+        this.onDisconnectCallback = null;
         this.reconnectAttempts = 0;
-        this.maxReconnectAttempts = 5;
-        this.retryTimeout = null;
-        this.isAccepted = false;
-        this.maxAttempts = 5;
-        this.currentAttempt = 0;
-        this.backoffDelay = 1000;
-        this.connectionCheckInterval = null;
-        this.activeConnection = null;
-        this.lastSuccessfulConnection = null;
-        this.examSessionId = null;
-        this.pingInterval = null;
-        this.lastPingTime = null;
-        this.lastConnectionParams = null;
+        this.keepAliveInterval = null;
+        this.lastKeepaliveTime = null;
+        this.wsInitialized = false;
     }
 
-    validateAuth() {
+    setCallbacks(callbacks) {
+        this.onConnectCallback = callbacks?.onConnect;
+        this.onDisconnectCallback = callbacks?.onDisconnect;
+    }
+
+    async initialize(videoElement) {
         try {
-            const token = this.getValidToken();
-            if (!this.userId) {
-                throw new Error('Missing user ID');
-            }
-            return token;
-        } catch (error) {
-            console.error('Auth validation failed:', error);
-            throw new Error('Authentication required');
-        }
-    }
-
-    getValidToken() {
-        const token = localStorage.getItem('token');
-        console.log('Getting token:', { hasToken: !!token });
-
-        if (!token || token === 'undefined' || token === 'null') {
-            localStorage.removeItem('token');
-            throw new Error('No valid token found');
-        }
-
-        const trimmedToken = token.trim();
-        if (!trimmedToken) {
-            localStorage.removeItem('token');
-            throw new Error('Invalid token format');
-        }
-
-        return trimmedToken;
-    }
-
-    async connect(examSessionId, wsUrl, wsConfig = {}) {
-        try {
-            if (!wsUrl) {
-                throw new Error('Missing WebSocket URL');
-            }
-
-            if (this.isConnecting) {
-                console.log('Connection already in progress');
-                return;
-            }
-
-            this.isConnecting = true;
-            this.examSessionId = examSessionId;
-
-            const token = wsConfig.token || localStorage.getItem('token');
-            if (!token) throw new Error('Authentication required');
-
-            // Simple URL with only token
-            const fullWsUrl = `${wsUrl}?token=${encodeURIComponent(token.trim())}`;
+            // Initialize video first and wait for it to be ready
+            await this.initializeVideo(videoElement);
             
-            console.log('Connecting to WebSocket:', {
-                url: wsUrl,
-                hasToken: !!token
-            });
-
-            return new Promise((resolve, reject) => {
+            // Initialize WebSocket with retries
+            for (let attempt = 0; attempt < 3; attempt++) {
                 try {
-                    this.ws = new WebSocket(fullWsUrl);
-                    this.ws.binaryType = 'blob';
-                    this.setupWebSocket(resolve, reject);
+                    await this.initializeWebSocket();
+                    return true;
                 } catch (error) {
-                    this.cleanup();
-                    reject(new Error('Connection failed: ' + error.message));
+                    console.warn(`WebSocket connection attempt ${attempt + 1} failed:`, error);
+                    if (attempt === 2) throw error;
+                    await new Promise(resolve => setTimeout(resolve, 1000 * (attempt + 1)));
                 }
-            });
+            }
         } catch (error) {
+            console.error("Stream initialization failed:", error);
             this.cleanup();
+            return false;
+        }
+    }
+
+    async initializeVideo(videoElement) {
+        this.videoElement = videoElement;
+        this.stream = await navigator.mediaDevices.getUserMedia({
+            video: {
+                width: 640,
+                height: 480,
+                frameRate: { ideal: 10, max: 15 }
+            },
+            audio: false
+        });
+
+        this.videoElement.srcObject = this.stream;
+        await this.videoElement.play();
+    }
+
+    async initializeWebSocket() {
+        if (this.wsInitialized) return;
+
+        // Use the WebSocket URL as is, without additional parameters
+        const wsUrl = this.baseWsUrl;
+        console.log('Connecting to WebSocket:', wsUrl);
+        
+        this.socket = new WebSocket(wsUrl);
+
+        await this.setupWebSocketWithPromise();
+        this.wsInitialized = true;
+        this.startKeepAlive();
+    }
+
+    setupWebSocketWithPromise() {
+        return new Promise((resolve, reject) => {
+            let timeoutId = setTimeout(() => {
+                reject(new Error('WebSocket connection timeout'));
+                this.cleanup();
+            }, 10000);
+
+            this.socket.onopen = () => {
+                clearTimeout(timeoutId);
+                console.log("WebSocket connection opened");
+                this._wsReady = true;
+                this._isConnected = true;
+                this.onConnectCallback?.();
+                this.startStreaming();
+                resolve();
+            };
+
+            const handleMessage = (event) => {
+                try {
+                    const data = JSON.parse(event.data);
+                    if (data.type === 'init_success' || data.type === 'accepted') {
+                        clearTimeout(timeoutId);
+                        this._wsReady = true;
+                        this._isConnected = true;
+                        this.onConnectCallback?.();
+                        this.startStreaming();
+                        
+                        // Cleanup listeners
+                        this.socket.removeEventListener('open', handleOpen);
+                        this.socket.removeEventListener('message', handleMessage);
+                        this.socket.removeEventListener('error', handleError);
+                        
+                        resolve();
+                    }
+                } catch (error) {
+                    console.debug('Non-JSON message received:', event.data);
+                }
+            };
+
+            const handleError = (error) => {
+                clearTimeout(timeoutId);
+                reject(error);
+                this.cleanup();
+            };
+
+            this.socket.addEventListener('message', handleMessage);
+            this.socket.addEventListener('error', handleError);
+        });
+    }
+
+    startKeepAlive() {
+        this.keepAliveInterval = setInterval(() => {
+            if (this.socket?.readyState === WebSocket.OPEN) {
+                this.socket.send(JSON.stringify({ type: 'keepalive' }));
+                this.lastKeepaliveTime = Date.now();
+            }
+        }, 15000);
+    }
+
+    reconnect() {
+        if (this.reconnectAttempts >= 3) return;
+        
+        setTimeout(() => {
+            console.log('Attempting to reconnect...');
+            this.reconnectAttempts++;
+            this.initialize(this.videoElement).catch(console.error);
+        }, 1000 * Math.pow(2, this.reconnectAttempts));
+    }
+
+    async endSession() {
+        try {
+            // Stop streaming first
+            this.stopStreaming();
+            
+            // Clean up video tracks
+            if (this.stream) {
+                this.stream.getTracks().forEach(track => track.stop());
+                this.stream = null;
+            }
+
+            // Clean up video element
+            if (this.videoElement) {
+                this.videoElement.srcObject = null;
+                this.videoElement = null;
+            }
+
+            // Close WebSocket with normal closure code
+            if (this.socket?.readyState === WebSocket.OPEN) {
+                this.socket.close(1000, 'Exam ended');
+            }
+
+            this._isConnected = false;
+            this._wsReady = false;
+            this.wsInitialized = false;
+
+            return true;
+        } catch (error) {
+            console.error('End session error:', error);
             throw error;
         }
     }
 
-    setupWebSocket(resolve, reject) {
-        const connectTimeout = setTimeout(() => {
-            reject(new Error('Connection timeout'));
-            this.cleanup();
-        }, 5000);
-
-        this.ws.onopen = () => {
-            clearTimeout(connectTimeout);
-            console.log('WebSocket connection opened');
-            this.isConnecting = false;
-            this.startPingInterval();
-
-            // Send initial message
-            this.ws.send(JSON.stringify({
-                type: 'init',
-                userId: this.userId
-            }));
-        };
-
-        this.ws.onmessage = (event) => {
-            try {
-                const data = JSON.parse(event.data);
-                console.log('WebSocket message:', data);
-
-                if (data.type === 'keepalive' || data.type === 'init_success') {
-                    this.isAccepted = true;
-                    resolve(true);
-                }
-
-                this.onMessage?.(data);
-            } catch (error) {
-                console.error('Message handling error:', error);
-            }
-        };
-
-        this.ws.onerror = (event) => {
-            clearTimeout(timeout);
-            const errorMessage = event.message || 'WebSocket connection failed';
-            console.error('WebSocket error:', { 
-                error: errorMessage,
-                readyState: this.ws?.readyState,
-                sessionId: this.examSessionId 
-            });
-            this.cleanup();
-            reject(new Error(errorMessage));
-        };
-
-        this.ws.onclose = (event) => {
-            clearTimeout(timeout);
-            console.log('WebSocket closed:', {
-                code: event.code,
-                reason: event.reason,
-                wasClean: event.wasClean
-            });
-            
-            this.cleanup();
-
-            if (event.code === 1000) {
-                console.log('Normal closure');
-            } else if (event.code === 1006) {
-                console.error('Abnormal closure - attempting reconnect');
-                this.handleReconnect();
-            }
-        };
-    }
-
-    startPingInterval() {
-        if (this.pingInterval) {
-            clearInterval(this.pingInterval);
-        }
-
-        this.pingInterval = setInterval(() => {
-            if (this.ws?.readyState === WebSocket.OPEN) {
-                this.ws.send(JSON.stringify({ type: 'ping' }));
-                this.lastPingTime = Date.now();
-            }
-        }, 30000); // Send ping every 30 seconds
-    }
-
-    handleClose(event) {
-        console.log(`Connection closed for exam session ${this.examSessionId}:`, event.code);
-        this.cleanup();
-
-        if (event.code === 1000) {
-            console.log('Normal closure');
-            return;
-        }
-
-        if (event.code === 403) {
-            console.log('Authentication failed');
-            window.location.href = '/login';
-            return;
-        }
-    }
-
     cleanup() {
-        this.isConnecting = false;
-        this.isAccepted = false;
-        
-        if (this.pingInterval) {
-            clearInterval(this.pingInterval);
-            this.pingInterval = null;
+        if (this.keepAliveInterval) {
+            clearInterval(this.keepAliveInterval);
+            this.keepAliveInterval = null;
         }
 
-        if (this.ws) {
-            try {
-                this.ws.close();
-            } catch (error) {
-                console.error('Error closing WebSocket:', error);
-            }
-            this.ws = null;
+        // Ensure proper WebSocket closure
+        if (this.socket?.readyState === WebSocket.OPEN) {
+            this.socket.close(1000, 'Normal closure');
         }
+
+        // Stop all tracks
+        if (this.stream) {
+            this.stream.getTracks().forEach(track => track.stop());
+        }
+
+        this.socket = null;
+        this.stream = null;
+        this.isStreaming = false;
+        this.wsInitialized = false;
+        this._isConnected = false;
+        this._wsReady = false;
+    }
+
+    startStreaming() {
+        if (!this.stream || !this.socket || this.isStreaming) return;
+        this.isStreaming = true;
+        this.captureFrames();
+    }
+
+    async captureFrames() {
+        while (this.isStreaming && this.socket?.readyState === WebSocket.OPEN) {
+            try {
+                const canvas = document.createElement('canvas');
+                canvas.width = this.videoElement.videoWidth;
+                canvas.height = this.videoElement.videoHeight;
+
+                const ctx = canvas.getContext('2d');
+                ctx.drawImage(this.videoElement, 0, 0);
+
+                const imageData = canvas.toDataURL('image/jpeg', 0.7);
+                this.socket.send(imageData);
+
+                await new Promise(resolve => setTimeout(resolve, this.chunkInterval));
+            } catch (error) {
+                console.error("Frame capture error:", error);
+            }
+        }
+    }
+
+    stopStreaming() {
+        this.isStreaming = false;
+        if (this.stream) {
+            this.stream.getTracks().forEach(track => track.stop());
+        }
+        if (this.socket && this.socket.readyState === WebSocket.OPEN) {
+            this.socket.close();
+        }
+    }
+
+    get isConnected() {
+        return this.socket?.readyState === WebSocket.OPEN && this.isStreaming;
     }
 
     disconnect() {
-        this.cleanup();
-        this.examSessionId = null;
-        this.lastPingTime = null;
-    }
-
-    handleMessage(event) {
-        try {
-            const data = JSON.parse(event.data);
-            this.onMessage?.(data);
-        } catch (error) {
-            console.error('Message handling error:', error);
-        }
-    }
-
-    handleReconnect() {
-        if (this.currentAttempt >= this.maxAttempts) {
-            console.log('Max reconnection attempts reached');
-            return;
-        }
-
-        if (!this.lastConnectionParams) {
-            console.error('No connection parameters available for reconnect');
-            return;
-        }
-
-        if (this.retryTimeout) {
-            clearTimeout(this.retryTimeout);
-        }
-
-        this.cleanup();
-        this.currentAttempt++;
-        const delay = Math.min(1000 * Math.pow(2, this.currentAttempt - 1), 30000);
-        
-        console.log(`Scheduling reconnection attempt ${this.currentAttempt} in ${delay}ms`);
-        
-        this.retryTimeout = setTimeout(async () => {
-            try {
-                if (!this.ws || this.ws.readyState === WebSocket.CLOSED) {
-                    const { examSessionId, wsUrl, wsConfig } = this.lastConnectionParams;
-                    await this.connect(examSessionId, wsUrl, wsConfig);
-                }
-            } catch (error) {
-                console.error('Reconnection failed:', error);
-                if (this.currentAttempt < this.maxAttempts) {
-                    this.handleReconnect();
-                }
-            }
-        }, delay);
-    }
-
-    sendFrame(imageBlob) {
-        if (!this.isAccepted || !this.ws || this.ws.readyState !== WebSocket.OPEN) {
-            console.log('Cannot send frame - connection not ready');
-            return;
-        }
-
-        if (imageBlob instanceof Blob) {
-            const reader = new FileReader();
-            reader.onload = () => {
-                if (this.ws?.readyState === WebSocket.OPEN) {
-                    this.ws.send(JSON.stringify({
-                        type: 'frame',
-                        data: reader.result,
-                        timestamp: Date.now()
-                    }));
-                }
-            };
-            reader.readAsDataURL(imageBlob);
-        }
+        this.stopStreaming();
     }
 }
-
-export default WebSocketHandler;
