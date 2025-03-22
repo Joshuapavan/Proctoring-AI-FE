@@ -43,7 +43,7 @@ const javaQuestions = [
   }
 ];
 
-const Dashboard = () => {
+const Exam = () => {
   const videoRef = useRef(null);
   const wsRef = useRef(null);
   const wsHandlerRef = useRef(null);  // Add this line
@@ -289,7 +289,7 @@ const Dashboard = () => {
       }
 
       // Then fetch summary with correct user ID
-      const response = await fetch(`${import.meta.env.VITE_API_URL}/api/v1/exam/summary/${userId}`);
+      const response = await fetch(`http://localhost:8080/api/v1/exam/summary/${userId}`);
       const data = await response.json();
       if (!response.ok) {
         throw new Error(data.detail || 'Failed to fetch summary');
@@ -675,4 +675,4 @@ const handleFinishExam = async () => {
   );
 };
 
-export default Dashboard;
+export default Exam;

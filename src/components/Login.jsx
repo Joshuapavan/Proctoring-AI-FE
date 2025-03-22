@@ -3,6 +3,7 @@ import { useNavigate } from 'react-router-dom';
 import Modal from './Modal';
 import Swal from 'sweetalert2/dist/sweetalert2.js';
 import 'sweetalert2/dist/sweetalert2.css';
+import { authService } from '../services/authService';
 
 const Login = () => {
   const [email, setEmail] = useState('');
@@ -16,27 +17,50 @@ const Login = () => {
   const navigate = useNavigate();
   const [isModalOpen, setIsModalOpen] = useState(false);
 
+  React.useEffect(() => {
+    // Check if already authenticated
+    const token = localStorage.getItem('token')?.trim();
+    const userId = localStorage.getItem('userId');
+    if (token && userId) {
+        navigate('/exam', { replace: true });
+    }
+  }, [navigate]);
+
+  const handleLoginSuccess = async (data) => {
+    try {
+        await authService.setAuth(data);
+        
+        await Swal.fire({
+            icon: 'success',
+            title: 'Login Successful',
+            text: 'Redirecting to dashboard...',
+            timer: 1500,
+            showConfirmButton: false,
+            background: '#2a2a2a',
+            color: '#fff'
+        });
+
+        navigate('/exam', { replace: true });
+    } catch (error) {
+        console.error('Login error:', error);
+        Swal.fire({
+            icon: 'error',
+            title: 'Login Error',
+            text: error.message,
+            background: '#2a2a2a',
+            color: '#fff'
+        });
+    }
+  };
+
   const handlePasswordLogin = async (e) => {
     e.preventDefault();
     setLoading(true);
-    const formData = new FormData();
-    formData.append('email', email);
-    formData.append('password', password);
+    setError('');
 
     try {
-      const response = await fetch('http://localhost:8080/api/v1/auth/login/password', {
-        method: 'POST',
-        body: formData,
-      });
-      
-      const data = await response.json();
-      if (!response.ok) {
-        throw new Error(data.detail || 'Login failed');
-      }
-      
-      localStorage.setItem('token', data.token);
-      localStorage.setItem('userId', data.id); // Store user ID
-      navigate('/dashboard');
+      const data = await authService.loginWithPassword({ email, password });
+      await handleLoginSuccess(data);
     } catch (err) {
       Swal.fire({
         icon: 'error',
@@ -113,12 +137,12 @@ const Login = () => {
   const handleFaceLogin = async () => {
     if (!capturedImage) return;
 
-    const formData = new FormData();;
+    const formData = new FormData();
     formData.append('image', capturedImage);
 
     try {
       setLoading(true);
-      const response = await fetch('http://localhost:8080/api/v1/auth/login/face', {
+      const response = await fetch(`${import.meta.env.VITE_API_URL}/api/v1/auth/login/face`, {
         method: 'POST',
         body: formData,
       });
@@ -128,9 +152,7 @@ const Login = () => {
         throw new Error(data.detail || 'Face login failed');
       }
       
-      localStorage.setItem('token', data.token);
-      localStorage.setItem('userId', data.id); // Store user ID
-      navigate('/dashboard');
+      handleLoginSuccess(data);
     } catch (err) {
       Swal.fire({
         icon: 'error',
@@ -209,13 +231,13 @@ const Login = () => {
         </button>
 
         <div className="auth-links">
-          <p>Don't have an account? 
-            <button onClick={() => navigate('/signup')} className="link-button">
-              Sign up with Email
-            </button>
-            or
-            <button onClick={() => navigate('/signup')} className="link-button">
-              Sign up with Face
+          <p>Don't have an account?{' '}
+            <button 
+              onClick={() => navigate('/signup')} 
+              className="link-button"
+              type="button"
+            >
+              Sign up
             </button>
           </p>
         </div>

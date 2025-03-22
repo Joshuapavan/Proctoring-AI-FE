@@ -1,41 +1,62 @@
 import React from 'react';
-import { BrowserRouter, Routes, Route, Navigate } from 'react-router-dom';
+import { BrowserRouter, Routes, Route, Navigate, useLocation } from 'react-router-dom';
+import { Provider } from 'react-redux';
+import { store } from './store/store';
 import Login from './components/Login';
 import Signup from './components/Signup';
-import Dashboard from './components/Dashboard';
-import './App.css';
+import Exam from './components/Exam';
+import Summary from './components/Summary';
 
-const Root = () => {
-  const token = localStorage.getItem('token');
-  return token ? <Navigate to="/dashboard" replace /> : <Navigate to="/login" replace />;
+const ProtectedRoute = ({ children }) => {
+    const location = useLocation();
+    const [isAuthenticated, setIsAuthenticated] = React.useState(null);
+
+    React.useEffect(() => {
+        const checkAuth = () => {
+            const token = localStorage.getItem('token')?.trim();
+            const userId = localStorage.getItem('userId');
+            const isValid = Boolean(token && userId && token !== 'undefined' && token !== 'null');
+            setIsAuthenticated(isValid);
+        };
+
+        checkAuth();
+        // Add event listener for storage changes
+        window.addEventListener('storage', checkAuth);
+        return () => window.removeEventListener('storage', checkAuth);
+    }, []);
+
+    // Show loading or nothing while checking auth
+    if (isAuthenticated === null) return null;
+
+    if (!isAuthenticated) {
+        return <Navigate to="/login" state={{ from: location }} replace />;
+    }
+
+    return children;
 };
 
 const App = () => {
-  return (
-    <BrowserRouter>
-      <Routes>
-        <Route path="/" element={<Root />} />
-        <Route path="/login" element={<Login />} />
-        <Route path="/signup" element={<Signup />} />
-        <Route 
-          path="/dashboard" 
-          element={
-            <ProtectedRoute>
-              <Dashboard />
-            </ProtectedRoute>
-          } 
-        />
-      </Routes>
-    </BrowserRouter>
-  );
-};
-
-const ProtectedRoute = ({ children }) => {
-  const token = localStorage.getItem('token');
-  if (!token) {
-    return <Navigate to="/login" replace />;
-  }
-  return children;
+    return (
+        <Provider store={store}>
+            <BrowserRouter>
+                <Routes>
+                    <Route path="/login" element={<Login />} />
+                    <Route path="/signup" element={<Signup />} />
+                    <Route path="/exam" element={
+                        <ProtectedRoute>
+                            < Exam />
+                        </ProtectedRoute>
+                    } />
+                    <Route path="/summary" element={
+                        <ProtectedRoute>
+                            <Summary />
+                        </ProtectedRoute>
+                    } />
+                    <Route path="/" element={<Navigate to="/exam" replace />} />
+                </Routes>
+            </BrowserRouter>
+        </Provider>
+    );
 };
 
 export default App;
