@@ -9,6 +9,8 @@ const Summary = () => {
     const [summary, setSummary] = useState(null);
     const [score, setScore] = useState(0);
     const [loading, setLoading] = useState(true);
+    const [tabSwitches, setTabSwitches] = useState(0);
+    const [examViolation, setExamViolation] = useState(null);
     const navigate = useNavigate();
 
     useEffect(() => {
@@ -24,6 +26,14 @@ const Summary = () => {
                 setScore(parseInt(examScore) || 0);
                 const summaryData = await examService.getExamSummary(userId);
                 
+                const tabSwitchCount = parseInt(localStorage.getItem('tabSwitches') || '0');
+                setTabSwitches(tabSwitchCount);
+
+                const violationData = localStorage.getItem('examViolation');
+                if (violationData) {
+                    setExamViolation(JSON.parse(violationData));
+                }
+
                 setSummary({
                     overall_compliance: summaryData.overall_compliance || 0,
                     total_duration: summaryData.total_duration || 0,
@@ -167,6 +177,19 @@ const Summary = () => {
                                 <span>Warnings</span>
                                 <strong>{summary.warnings?.length || 0}</strong>
                             </div>
+                            <div className="metric-item">
+                                <span>Tab Switches</span>
+                                <strong>{tabSwitches}/3</strong>
+                            </div>
+                            {examViolation && (
+                                <div className="metric-item violation">
+                                    <span>Exam Terminated</span>
+                                    <strong>{examViolation.type === 'copy-paste' ? 
+                                        `Copy-Paste (${examViolation.copyPasteAttempts})` : 
+                                        `Tab Switches (${examViolation.tabSwitches})`}
+                                    </strong>
+                                </div>
+                            )}
                         </div>
                     </div>
                 </div>

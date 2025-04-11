@@ -7,6 +7,8 @@ import { examService } from '../services/examService';
 import { VideoStreamManager } from '../utils/WebSocketHandler';  // Update this line
 import { authService } from '../services/authService';
 import { formatTime } from '../utils/timeUtils';
+import { handleTabVisibility, getTabSwitchCount } from '../utils/tabVisibility';
+import { incrementCopyPasteCount, getCopyPasteCount } from '../utils/copyPasteTracker';
 import {
   Chart as ChartJS,
   ArcElement,
@@ -418,7 +420,7 @@ const Exam = () => {
     }
 };
 
-const handleFinishExam = async () => {
+const handleFinishExam = async (isViolation = false) => {
     if (timerRef.current) {
         clearInterval(timerRef.current);
     }
@@ -446,10 +448,25 @@ const handleFinishExam = async () => {
     });
 
     try {
+        if (isViolation) {
+            // Add violation data to exam summary
+            const copyPasteAttempts = getCopyPasteCount();
+            const tabSwitches = getTabSwitchCount();
+            localStorage.setItem('examViolation', JSON.stringify({
+                copyPasteAttempts,
+                tabSwitches,
+                type: copyPasteAttempts >= 3 ? 'copy-paste' : 'tab-switch'
+            }));
+        }
+
         // Close websocket
         if (wsHandlerRef.current) {
             await wsHandlerRef.current.endSession();
         }
+
+        // Add tab switch count to the exam data
+        const tabSwitches = getTabSwitchCount();
+        localStorage.setItem('tabSwitches', tabSwitches);
 
         // Stop exam and navigate to summary
         const userId = localStorage.getItem('userId');
@@ -526,6 +543,77 @@ const handleFinishExam = async () => {
       }
     });
   };
+
+  const handleExamViolation = async (type) => {
+    const messages = {
+      'tab-switch': 'You have switched tabs too many times.',
+      'copy-paste': 'You have attempted to copy-paste too many times.'
+    };
+
+    await Swal.fire({
+      icon: 'error',
+      title: 'Exam Violation',
+      text: `${messages[type]} The exam will be terminated.`,
+      background: '#2a2a2a',
+      color: '#fff',
+      showConfirmButton: false,
+      timer: 3000
+    });
+
+    // Store violation counts
+    localStorage.setItem('tabSwitches', getTabSwitchCount());
+    localStorage.setItem('copyPasteAttempts', getCopyPasteCount());
+
+    // End exam with violation flag
+    handleFinishExam(true);
+  };
+
+  useEffect(() => {
+    // Prevent copy-paste
+    const preventCopyPaste = (e) => {
+      e.preventDefault();
+      if (incrementCopyPasteCount()) {
+        handleExamViolation('copy-paste');
+      }
+      return false;
+    };
+
+    // Block right-click
+    const preventRightClick = (e) => {
+      e.preventDefault();
+      return false;
+    };
+
+    // Set up tab visibility monitoring
+    const cleanup = handleTabVisibility(() => {
+      handleExamViolation('tab-switch');
+    });
+
+    // Add event listeners
+    document.addEventListener('copy', preventCopyPaste);
+    document.addEventListener('paste', preventCopyPaste);
+    document.addEventListener('cut', preventCopyPaste);
+    document.addEventListener('contextmenu', preventRightClick);
+    
+    // Add styles to prevent text selection
+    document.body.style.userSelect = 'none';
+    document.body.style.webkitUserSelect = 'none';
+    document.body.style.msUserSelect = 'none';
+    document.body.style.mozUserSelect = 'none';
+
+    return () => {
+      document.removeEventListener('copy', preventCopyPaste);
+      document.removeEventListener('paste', preventCopyPaste);
+      document.removeEventListener('cut', preventCopyPaste);
+      document.removeEventListener('contextmenu', preventRightClick);
+      cleanup();
+      
+      document.body.style.userSelect = '';
+      document.body.style.webkitUserSelect = '';
+      document.body.style.msUserSelect = '';
+      document.body.style.mozUserSelect = '';
+    };
+  }, []);
 
   // Add cleanup on component unmount
   useEffect(() => {
