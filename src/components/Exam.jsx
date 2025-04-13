@@ -56,7 +56,7 @@ const Exam = () => {
   const [connected, setConnected] = useState(false);
   const [summary, setSummary] = useState(null);
   const [examId, setExamId] = useState(localStorage.getItem('userId') || '1');
-  const [timeRemaining, setTimeRemaining] = useState(45 * 60); // 45 minutes in seconds
+  const [timeRemaining, setTimeRemaining] = useState(60); // 1 minute in seconds
   const timerRef = useRef(null);
   const [isReady, setIsReady] = useState(false);
   const [isInitializing, setIsInitializing] = useState(true);
@@ -309,7 +309,7 @@ const Exam = () => {
         setTimeRemaining(prev => {
           if (prev <= 0) {
             clearInterval(timerRef.current);
-            handleFinishExam();
+            handleTimeExpired();
             return 0;
           }
           return prev - 1;
@@ -323,6 +323,52 @@ const Exam = () => {
       };
     }
   }, [connected, showScore]);
+
+  const handleTimeExpired = async () => {
+    // Clean up resources
+    if (videoRef.current?.srcObject) {
+      videoRef.current.srcObject.getTracks().forEach(track => track.stop());
+      videoRef.current.srcObject = null;
+    }
+
+    // Show timeout message
+    Swal.fire({
+      title: 'Time\'s Up!',
+      html: 'Your exam time has expired. Processing results...',
+      allowOutsideClick: false,
+      allowEscapeKey: false,
+      showConfirmButton: false,
+      didOpen: () => {
+        Swal.showLoading();
+      },
+      background: '#2a2a2a',
+      color: '#fff'
+    });
+
+    try {
+      // Close WebSocket connection
+      if (wsHandlerRef.current) {
+        await wsHandlerRef.current.endSession();
+      }
+
+      const userId = localStorage.getItem('userId');
+      
+      // Force close the exam
+      await examService.forceCloseExam(userId);
+
+      // Wait for summary
+      const summary = await pollForSummary(userId);
+      localStorage.setItem('examSummary', JSON.stringify(summary));
+      localStorage.setItem('examScore', score);
+
+      await Swal.close();
+      navigate('/summary');
+    } catch (error) {
+      console.error('Error handling timeout:', error);
+      await Swal.close();
+      navigate('/summary');
+    }
+  };
 
   const cleanup = () => {
     if (frameIntervalRef.current) {
