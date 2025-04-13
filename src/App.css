@@ -575,8 +575,9 @@ capture-btn:hover {
 
 .webcam-feed {
   width: 100%;
-  height: auto;
-  display: block;
+  aspect-ratio: 4/3;
+  object-fit: cover;
+  transform: scaleX(-1); /* Add mirror effect */
 }
 
 .connection-status {
@@ -806,7 +807,7 @@ capture-btn:hover {
 }
 
 .exam-content {
-  padding: 2rem;
+  padding: 2.5rem;
   max-width: 100%;
   width: 100%;
   margin: 0 auto;
@@ -869,7 +870,7 @@ capture-btn:hover {
   }
 
   .question-content {
-    padding: 1rem;
+    padding: 2.5rem;
   }
 
   .question-text {
@@ -917,6 +918,7 @@ capture-btn:hover {
   width: 100%;
   aspect-ratio: 4/3;
   object-fit: cover;
+  transform: scaleX(-1); /* Add mirror effect */
 }
 
 .status-indicator {
@@ -976,7 +978,7 @@ capture-btn:hover {
 }
 
 .exam-content {
-  padding: 2rem;
+  padding: 2.5rem;
 }
 
 .question-card {
@@ -1025,7 +1027,7 @@ capture-btn:hover {
 }
 
 .question-content {
-  padding: 2rem;
+  padding: 2.5rem;
 }
 
 .options-grid {
@@ -1667,4 +1669,189 @@ capture-btn:hover {
   .action-button {
     width: 100%;
   }
+}
+
+.warnings-box {
+  position: fixed;
+  top: 20px;
+  right: 20px;
+  width: 300px;
+  max-height: 200px;
+  overflow-y: auto;
+  background: rgba(0, 0, 0, 0.8);
+  border-radius: 8px;
+  padding: 1rem;
+  z-index: 1000;
+}
+
+.warning-message {
+  color: #ffd700;
+  margin-bottom: 0.5rem;
+  padding: 0.5rem;
+  border-bottom: 1px solid rgba(255, 255, 255, 0.1);
+}
+
+.warning-message:last-child {
+  border-bottom: none;
+}
+
+.violations {
+  background: rgba(231, 76, 60, 0.1);
+}
+
+.violation-stats {
+  padding: 1rem;
+}
+
+.compliance-score {
+  text-align: center;
+  margin-bottom: 1.5rem;
+}
+
+.compliance-score strong {
+  display: block;
+  font-size: 2rem;
+  color: #2ecc71;
+}
+
+.violation-list {
+  margin: 1rem 0;
+}
+
+.violation-item {
+  padding: 0.5rem;
+  background: rgba(255, 255, 255, 0.05);
+  border-radius: 4px;
+  margin-bottom: 0.5rem;
+}
+
+.termination-reason {
+  margin-top: 1.5rem;
+  text-align: center;
+  padding: 1rem;
+  background: rgba(231, 76, 60, 0.2);
+  border-radius: 8px;
+}
+
+.termination-reason span {
+  display: block;
+  margin-bottom: 0.5rem;
+  opacity: 0.7;
+}
+
+.termination-reason strong {
+  color: #e74c3c;
+}
+
+.side-alert {
+  position: fixed;
+  top: 20px;
+  right: 20px;
+  width: 300px;
+  padding: 1rem;
+  background: rgba(0, 0, 0, 0.9);
+  border-left: 4px solid #ffd700;
+  border-radius: 4px;
+  color: white;
+  z-index: 1000;
+  animation: slideIn 0.3s ease-out;
+}
+
+.side-alert.violation {
+  border-left-color: #e74c3c;
+  background: rgba(231, 76, 60, 0.9);
+}
+
+.alert-header {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  margin-bottom: 0.5rem;
+}
+
+.alert-time {
+  font-size: 0.8rem;
+  opacity: 0.7;
+}
+
+.alert-warning {
+  font-size: 1.1rem;
+  font-weight: 500;
+}
+
+.alert-message {
+  color: white;
+  font-size: 1rem;
+}
+
+@keyframes slideIn {
+  from {
+    transform: translateX(100%);
+    opacity: 0;
+  }
+  to {
+    transform: translateX(0);
+    opacity: 1;
+  }
+}
+
+.violation-test-area {
+  background: rgba(255, 255, 255, 0.05);
+  border-radius: 8px;
+  padding: 2rem;
+  margin: 2rem 0;
+}
+
+.test-input-container {
+  margin-bottom: 1.5rem;
+  padding: 1rem;
+  background: rgba(0, 0, 0, 0.2);
+  border-radius: 8px;
+  box-sizing: border-box;
+  width: 100%;
+}
+
+.test-input {
+  width: 100%;
+  padding: 1rem;
+  margin: 0.5rem 0;
+  background: rgba(0, 0, 0, 0.2);
+  border: 1px solid rgba(255, 255, 255, 0.1);
+  border-radius: 4px;
+  color: white;
+  font-size: 1rem;
+  box-sizing: border-box;
+}
+
+.test-input-container small {
+  display: block;
+  margin-top: 0.5rem;
+  color: #888;
+  font-size: 0.875rem;
+}
+
+.violation-counters {
+  display: flex;
+  gap: 1rem;
+  margin-top: 1rem;
+}
+
+.counter {
+  flex: 1;
+  background: rgba(0, 0, 0, 0.2);
+  padding: 0.75rem;
+  border-radius: 4px;
+  text-align: center;
+}
+
+.counter span {
+  display: block;
+  font-size: 0.875rem;
+  color: #888;
+  margin-bottom: 0.25rem;
+}
+
+.counter strong {
+  color: #646cff;
+  font-size: 1.25rem;
 }

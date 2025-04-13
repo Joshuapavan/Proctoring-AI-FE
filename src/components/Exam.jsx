@@ -4,10 +4,10 @@ import { Doughnut } from 'react-chartjs-2';
 import Swal from 'sweetalert2/dist/sweetalert2.js';
 import 'sweetalert2/dist/sweetalert2.css';
 import { examService } from '../services/examService';
-import { VideoStreamManager } from '../utils/WebSocketHandler';  // Update this line
+import { VideoStreamManager } from '../utils/WebSocketHandler';
 import { authService } from '../services/authService';
 import { formatTime } from '../utils/timeUtils';
-import { handleTabVisibility, getTabSwitchCount } from '../utils/tabVisibility';
+import { handleTabVisibility, getTabSwitchCount, incrementTabSwitchCount } from '../utils/tabVisibility';
 import { incrementCopyPasteCount, getCopyPasteCount } from '../utils/copyPasteTracker';
 import {
   Chart as ChartJS,
@@ -48,7 +48,7 @@ const javaQuestions = [
 const Exam = () => {
   const videoRef = useRef(null);
   const wsRef = useRef(null);
-  const wsHandlerRef = useRef(null);  // Add this line
+  const wsHandlerRef = useRef(null);
   const [currentQuestion, setCurrentQuestion] = useState(0);
   const [score, setScore] = useState(0);
   const [showScore, setShowScore] = useState(false);
@@ -64,25 +64,97 @@ const Exam = () => {
   const [isVideoReady, setIsVideoReady] = useState(false);
   const frameIntervalRef = useRef(null);
   const [videoInitError, setVideoInitError] = useState(null);
+  const [warnings, setWarnings] = useState([]);
+  const [violationScore, setViolationScore] = useState(100); // Start at 100%
+  const [sideAlert, setSideAlert] = useState(null);
+
+  const showSideAlert = (type, attempt) => {
+    const newWarning = {
+      type: type === 'tab' ? 'Tab Switching' : 'Copy-Paste',
+      attempt,
+      time: new Date().toLocaleTimeString()
+    };
+    
+    setSideAlert(newWarning);
+    const deduction = 10;
+    setViolationScore(prev => Math.max(0, prev - deduction));
+    
+    // Auto clear after 3 seconds
+    setTimeout(() => setSideAlert(null), 3000);
+  };
+
+  const handleExamViolation = async (type, attempts) => {
+    const messages = {
+      'tab-switch': 'You have switched tabs too many times.',
+      'copy-paste': 'You have attempted to copy-paste too many times.'
+    };
+
+    // Store violation data
+    localStorage.setItem('examViolations', JSON.stringify({
+      type,
+      attempts,
+      warnings: warnings,
+      complianceScore: violationScore
+    }));
+
+    try {
+      const userId = localStorage.getItem('userId');
+      
+      Swal.fire({
+        title: 'Exam Terminated',
+        html: 'Your exam has been terminated due to violations.',
+        allowOutsideClick: false,
+        allowEscapeKey: false,
+        showConfirmButton: true,
+        confirmButtonText: 'OK',
+        background: '#2a2a2a',
+        color: '#fff'
+      }).then(async () => {
+        // Clean up video stream
+        if (videoRef.current?.srcObject) {
+          videoRef.current.srcObject.getTracks().forEach(track => track.stop());
+          videoRef.current.srcObject = null;
+        }
+
+        // Close WebSocket connection
+        if (wsHandlerRef.current) {
+          await wsHandlerRef.current.endSession();
+          wsHandlerRef.current = null;
+        }
+
+        // Call force-close API
+        await examService.forceCloseExam(userId);
+
+        // Log out user
+        authService.logout();
+
+        // Refresh the page which will redirect to login due to no token
+        window.location.reload();
+      });
+
+    } catch (error) {
+      console.error('Error during violation handling:', error);
+      // Still logout and refresh even if there's an error
+      authService.logout();
+      window.location.reload();
+    }
+  };
 
   const initializeVideo = async (retryCount = 0, maxRetries = 3) => {
     return new Promise(async (resolve) => {
       try {
-        // First check if video element exists
         if (!videoRef.current) {
           setVideoInitError('Video element not found');
           resolve(false);
           return;
         }
 
-        // Check if getUserMedia is supported
         if (!navigator.mediaDevices?.getUserMedia) {
           setVideoInitError('Camera access not supported in your browser');
           resolve(false);
           return;
         }
 
-        // Try to get camera stream
         const stream = await navigator.mediaDevices.getUserMedia({
           video: {
             width: { ideal: 640, max: 1280 },
@@ -92,12 +164,10 @@ const Exam = () => {
           }
         });
 
-        // Check if stream is valid
         if (!stream.active) {
           throw new Error('Camera stream not active');
         }
 
-        // Set up video element
         videoRef.current.srcObject = stream;
         await new Promise((resolveVideo) => {
           videoRef.current.onloadedmetadata = () => resolveVideo();
@@ -107,7 +177,6 @@ const Exam = () => {
           };
         });
 
-        // Try to play the video
         try {
           await videoRef.current.play();
           console.log('Video stream initialized successfully');
@@ -154,25 +223,21 @@ const Exam = () => {
         setIsInitializing(true);
         setVideoInitError(null);
 
-        // Initialize video first
         const videoReady = await initializeVideo();
         if (!videoReady || !isComponentMounted) {
           throw new Error('Video initialization failed');
         }
         setIsVideoReady(true);
 
-        // Get exam session
         const examResponse = await examService.startExam(userId);
         if (!isComponentMounted) return;
 
         console.log('Exam session response:', examResponse);
 
-        // Validate WebSocket URL
         if (!examResponse.wsUrl) {
           throw new Error('Invalid WebSocket URL received from server');
         }
 
-        // Initialize VideoStreamManager with validated URL
         wsHandlerRef.current = new VideoStreamManager(
           examResponse.wsUrl,
           token,
@@ -194,7 +259,6 @@ const Exam = () => {
           }
         });
 
-        // Initialize stream with existing video element
         const success = await wsHandlerRef.current.initialize(videoRef.current);
         if (!success) {
           throw new Error('Failed to initialize stream');
@@ -281,7 +345,6 @@ const Exam = () => {
         throw new Error('User ID not found');
       }
 
-      // First cleanup all connections
       if (wsRef.current) {
         wsRef.current.close();
         setConnected(false);
@@ -290,7 +353,6 @@ const Exam = () => {
         videoRef.current.srcObject.getTracks().forEach(track => track.stop());
       }
 
-      // Then fetch summary with correct user ID
       const response = await fetch(`http://localhost:8080/api/v1/exam/summary/${userId}`);
       const data = await response.json();
       if (!response.ok) {
@@ -356,6 +418,24 @@ const Exam = () => {
     navigate('/login', { replace: true });
   }
 
+  const pollForSummary = async (userId, maxAttempts = 10, interval = 2000) => {
+    for (let attempt = 0; attempt < maxAttempts; attempt++) {
+      try {
+        const response = await fetch(`${import.meta.env.VITE_API_URL}/api/v1/exam/summary/${userId}`);
+        const data = await response.json();
+        
+        if (response.ok && data) {
+          return data;
+        }
+      } catch (error) {
+        console.debug('Waiting for summary...', error);
+      }
+      
+      await new Promise(resolve => setTimeout(resolve, interval));
+    }
+    throw new Error('Failed to get exam summary');
+  };
+
   const handleAnswer = async (answer) => {
     if (answer === javaQuestions[currentQuestion].correct) {
         setScore(score + 1);
@@ -365,7 +445,6 @@ const Exam = () => {
     if (nextQuestion < javaQuestions.length) {
         setCurrentQuestion(nextQuestion);
     } else {
-        // Clean up media streams first
         if (videoRef.current?.srcObject) {
             videoRef.current.srcObject.getTracks().forEach(track => {
                 track.stop();
@@ -373,14 +452,13 @@ const Exam = () => {
             videoRef.current.srcObject = null;
         }
         
-        // Show loading screen
         Swal.fire({
-            title: 'Completing Exam',
-            html: 'Please wait while we process your results...',
+            title: 'Processing Results',
+            html: 'Please wait while we analyze your exam session...',
             allowOutsideClick: false,
             allowEscapeKey: false,
             showConfirmButton: false,
-            willOpen: () => {
+            didOpen: () => {
                 Swal.showLoading();
             },
             background: '#2a2a2a',
@@ -388,34 +466,37 @@ const Exam = () => {
         });
 
         try {
-            // Close websocket
             if (wsHandlerRef.current) {
                 await wsHandlerRef.current.endSession();
             }
 
-            // Stop exam and get final score
-            const userId = localStorage.getItem('userId');
-            const response = await examService.stopExam(userId);
-            
-            // Store score and summary data
-            localStorage.setItem('examScore', score + (answer === javaQuestions[currentQuestion].correct ? 1 : 0));
-            localStorage.setItem('examSummary', JSON.stringify(response));
+            const finalScore = score + (answer === javaQuestions[currentQuestion].correct ? 1 : 0);
+            localStorage.setItem('examScore', finalScore);
 
-            // Close loading screen
+            const userId = localStorage.getItem('userId');
+            const summary = await pollForSummary(userId);
+            localStorage.setItem('examSummary', JSON.stringify(summary));
+
             await Swal.close();
-            
-            // Navigate to summary page
             navigate('/summary');
         } catch (error) {
-            console.error('Error ending exam:', error);
-            await Swal.fire({
-                icon: 'warning',
-                title: 'Warning',
-                text: 'Some cleanup operations failed, but your exam has been recorded.',
-                background: '#2a2a2a',
-                color: '#fff'
+            console.error('Error during exam completion:', error);
+            Swal.update({
+                title: 'Processing Results',
+                html: 'Please wait while we complete the analysis...',
+                showConfirmButton: false
             });
-            navigate('/summary');
+            setTimeout(async () => {
+                try {
+                    const userId = localStorage.getItem('userId');
+                    const summary = await pollForSummary(userId, 1);
+                    localStorage.setItem('examSummary', JSON.stringify(summary));
+                } catch (finalError) {
+                    console.error('Final attempt failed:', finalError);
+                }
+                await Swal.close();
+                navigate('/summary');
+            }, 5000);
         }
     }
 };
@@ -425,7 +506,6 @@ const handleFinishExam = async (isViolation = false) => {
         clearInterval(timerRef.current);
     }
 
-    // Clean up media streams first
     if (videoRef.current?.srcObject) {
         videoRef.current.srcObject.getTracks().forEach(track => {
             track.stop();
@@ -433,23 +513,8 @@ const handleFinishExam = async (isViolation = false) => {
         videoRef.current.srcObject = null;
     }
 
-    // Show loading screen
-    Swal.fire({
-        title: 'Completing Exam',
-        html: 'Please wait while we process your results...',
-        allowOutsideClick: false,
-        allowEscapeKey: false,
-        showConfirmButton: false,
-        willOpen: () => {
-            Swal.showLoading();
-        },
-        background: '#2a2a2a',
-        color: '#fff'
-    });
-
     try {
         if (isViolation) {
-            // Add violation data to exam summary
             const copyPasteAttempts = getCopyPasteCount();
             const tabSwitches = getTabSwitchCount();
             localStorage.setItem('examViolation', JSON.stringify({
@@ -459,38 +524,49 @@ const handleFinishExam = async (isViolation = false) => {
             }));
         }
 
-        // Close websocket
-        if (wsHandlerRef.current) {
-            await wsHandlerRef.current.endSession();
-        }
-
-        // Add tab switch count to the exam data
-        const tabSwitches = getTabSwitchCount();
-        localStorage.setItem('tabSwitches', tabSwitches);
-
-        // Stop exam and navigate to summary
-        const userId = localStorage.getItem('userId');
-        const response = await examService.stopExam(userId);
-
-        // Store data
-        localStorage.setItem('examScore', score);
-        localStorage.setItem('examSummary', JSON.stringify(response));
-
-        // Close loading screen
-        await Swal.close();
-
-        // Navigate to summary
-        navigate('/summary');
-    } catch (error) {
-        console.error('Error ending exam:', error);
-        await Swal.fire({
-            icon: 'error',
-            title: 'Error',
-            text: 'Failed to end exam properly. The exam will still be marked as complete.',
+        Swal.fire({
+            title: 'Processing Results',
+            html: 'Please wait while we analyze your exam session...',
+            allowOutsideClick: false,
+            allowEscapeKey: false,
+            showConfirmButton: false,
+            didOpen: () => {
+                Swal.showLoading();
+            },
             background: '#2a2a2a',
             color: '#fff'
         });
+
+        if (wsHandlerRef.current) {
+            await wsHandlerRef.current.endSession();
+        }
+        localStorage.setItem('tabSwitches', getTabSwitchCount());
+        localStorage.setItem('examScore', score);
+
+        const userId = localStorage.getItem('userId');
+        const summary = await pollForSummary(userId);
+        localStorage.setItem('examSummary', JSON.stringify(summary));
+
+        await Swal.close();
         navigate('/summary');
+    } catch (error) {
+        console.error('Error during exam completion:', error);
+        Swal.update({
+            title: 'Processing Results',
+            html: 'Please wait while we complete the analysis...',
+            showConfirmButton: false
+        });
+        setTimeout(async () => {
+            try {
+                const userId = localStorage.getItem('userId');
+                const summary = await pollForSummary(userId, 1);
+                localStorage.setItem('examSummary', JSON.stringify(summary));
+            } catch (finalError) {
+                console.error('Final attempt failed:', finalError);
+            }
+            await Swal.close();
+            navigate('/summary');
+        }, 5000);
     }
 };
 
@@ -508,35 +584,29 @@ const handleFinishExam = async (isViolation = false) => {
     }).then(async (result) => {
       if (result.isConfirmed) {
         try {
-          // Stop all camera tracks
           if (videoRef.current?.srcObject) {
             const tracks = videoRef.current.srcObject.getTracks();
             tracks.forEach(track => track.stop());
             videoRef.current.srcObject = null;
           }
 
-          // Stop frame capture
           if (frameIntervalRef.current) {
             clearInterval(frameIntervalRef.current);
             frameIntervalRef.current = null;
           }
 
-          // Close WebSocket connection
           if (wsHandlerRef.current) {
             wsHandlerRef.current.disconnect();
             wsHandlerRef.current = null;
           }
 
-          // Clear connection state
           setConnected(false);
           setIsVideoReady(false);
 
-          // Clear auth data and navigate
           authService.logout();
           navigate('/login', { replace: true });
         } catch (error) {
           console.error('Logout cleanup error:', error);
-          // Still proceed with logout even if cleanup fails
           authService.logout();
           navigate('/login', { replace: true });
         }
@@ -544,78 +614,44 @@ const handleFinishExam = async (isViolation = false) => {
     });
   };
 
-  const handleExamViolation = async (type) => {
-    const messages = {
-      'tab-switch': 'You have switched tabs too many times.',
-      'copy-paste': 'You have attempted to copy-paste too many times.'
-    };
-
-    await Swal.fire({
-      icon: 'error',
-      title: 'Exam Violation',
-      text: `${messages[type]} The exam will be terminated.`,
-      background: '#2a2a2a',
-      color: '#fff',
-      showConfirmButton: false,
-      timer: 3000
-    });
-
-    // Store violation counts
-    localStorage.setItem('tabSwitches', getTabSwitchCount());
-    localStorage.setItem('copyPasteAttempts', getCopyPasteCount());
-
-    // End exam with violation flag
-    handleFinishExam(true);
-  };
-
   useEffect(() => {
-    // Prevent copy-paste
-    const preventCopyPaste = (e) => {
+    const preventCopyPaste = async (e) => {
       e.preventDefault();
-      if (incrementCopyPasteCount()) {
-        handleExamViolation('copy-paste');
+      const attempts = incrementCopyPasteCount();
+      console.log('Copy paste attempts:', attempts);
+      if (attempts < 3) {
+        showSideAlert('copy', attempts);
+      } else {
+        await handleExamViolation('copy-paste', attempts);
       }
       return false;
     };
 
-    // Block right-click
-    const preventRightClick = (e) => {
-      e.preventDefault();
-      return false;
+    const handleVisibilityChange = async () => {
+      if (document.hidden) {
+        const attempts = incrementTabSwitchCount();
+        console.log('Tab switch attempts:', attempts);
+        if (attempts < 3) {
+          showSideAlert('tab', attempts);
+        } else {
+          await handleExamViolation('tab-switch', attempts);
+        }
+      }
     };
 
-    // Set up tab visibility monitoring
-    const cleanup = handleTabVisibility(() => {
-      handleExamViolation('tab-switch');
-    });
-
-    // Add event listeners
     document.addEventListener('copy', preventCopyPaste);
     document.addEventListener('paste', preventCopyPaste);
     document.addEventListener('cut', preventCopyPaste);
-    document.addEventListener('contextmenu', preventRightClick);
-    
-    // Add styles to prevent text selection
-    document.body.style.userSelect = 'none';
-    document.body.style.webkitUserSelect = 'none';
-    document.body.style.msUserSelect = 'none';
-    document.body.style.mozUserSelect = 'none';
+    document.addEventListener('visibilitychange', handleVisibilityChange);
 
     return () => {
       document.removeEventListener('copy', preventCopyPaste);
       document.removeEventListener('paste', preventCopyPaste);
       document.removeEventListener('cut', preventCopyPaste);
-      document.removeEventListener('contextmenu', preventRightClick);
-      cleanup();
-      
-      document.body.style.userSelect = '';
-      document.body.style.webkitUserSelect = '';
-      document.body.style.msUserSelect = '';
-      document.body.style.mozUserSelect = '';
+      document.removeEventListener('visibilitychange', handleVisibilityChange);
     };
   }, []);
 
-  // Add cleanup on component unmount
   useEffect(() => {
     return () => {
       if (wsRef.current) {
@@ -659,6 +695,21 @@ const handleFinishExam = async (isViolation = false) => {
       </aside>
 
       <main className="exam-content">
+        {sideAlert && (
+          <div className={`side-alert ${sideAlert.isViolation ? 'violation' : ''}`}>
+            <div className="alert-header">
+              <strong>{sideAlert.type}</strong>
+              <span className="alert-time">{sideAlert.time}</span>
+            </div>
+            {sideAlert.isViolation ? (
+              <div className="alert-message">{sideAlert.message}</div>
+            ) : (
+              <div className="alert-warning">
+                Warning {sideAlert.attempt}/3
+              </div>
+            )}
+          </div>
+        )}
         {!connected ? (
           <div className="connection-warning">
             <div className="warning-card">
@@ -753,11 +804,23 @@ const handleFinishExam = async (isViolation = false) => {
                   </button>
                 ))}
               </div>
+
+              <div className="violation-test-area">
+                <div className="test-input-container">
+                  <h4>Copy-Paste Test Area</h4>
+                  <input
+                    type="text"
+                    className="test-input"
+                    placeholder="Try copy-pasting text here..."
+                    onPaste={(e) => e.preventDefault()}
+                  />
+                  <small>This area is used to test copy-paste violation detection</small>
+                </div>
+              </div>
             </div>
           </div>
         )}
       </main>
-      {/* New fixed logout button */}
       <button onClick={handleLogout} className="logout-fixed">Logout</button>
     </div>
   );

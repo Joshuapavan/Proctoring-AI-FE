@@ -100,6 +100,39 @@ const Summary = () => {
         );
     };
 
+    const renderViolations = () => {
+        const violations = JSON.parse(localStorage.getItem('examViolations') || '{}');
+        if (!Object.keys(violations).length) return null;
+
+        return (
+            <div className="section-card violations">
+                <h3>Exam Violations</h3>
+                <div className="violation-stats">
+                    <div className="compliance-score">
+                        <span>Compliance Score</span>
+                        <strong>{violations.complianceScore}%</strong>
+                    </div>
+                    <div className="violation-list">
+                        {violations.warnings.map((warning, index) => (
+                            <div key={index} className="violation-item">
+                                {warning}
+                            </div>
+                        ))}
+                    </div>
+                    {violations.type && (
+                        <div className="termination-reason">
+                            <span>Exam Terminated Due To:</span>
+                            <strong>
+                                {violations.type === 'tab-switch' ? 'Excessive Tab Switching' : 'Excessive Copy-Paste Attempts'}
+                                ({violations.attempts} attempts)
+                            </strong>
+                        </div>
+                    )}
+                </div>
+            </div>
+        );
+    };
+
     const handleLogout = async () => {
         try {
             // Clear logs first
@@ -212,6 +245,8 @@ const Summary = () => {
                         </div>
                     </div>
                 )}
+
+                {renderViolations()}
 
                 <div className="actions-section">
                     <button onClick={handleLogout} className="action-button primary">

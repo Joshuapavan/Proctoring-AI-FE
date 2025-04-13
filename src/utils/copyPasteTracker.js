@@ -3,7 +3,7 @@ const COPY_PASTE_LIMIT = 3;
 
 export const incrementCopyPasteCount = () => {
     copyPasteCount++;
-    return copyPasteCount >= COPY_PASTE_LIMIT;
+    return copyPasteCount;
 };
 
 export const getCopyPasteCount = () => copyPasteCount;

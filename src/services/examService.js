@@ -49,6 +49,21 @@ const sendRequest = async (url, options) => {
     return response.json().catch(() => ({}));
 };
 
+const forceCloseExam = async (userId) => {
+    const token = localStorage.getItem('token');
+    const response = await fetch(`${import.meta.env.VITE_API_URL}/api/v1/exam/force-close/${userId}`, {
+        method: 'POST',
+        headers: {
+            'Authorization': `Bearer ${token}`,
+        }
+    });
+
+    if (!response.ok) {
+        throw new Error('Failed to force close exam');
+    }
+    return response.json();
+};
+
 export const examService = {
     async getSession(userId) {
         try {
@@ -181,5 +196,7 @@ export const examService = {
             // Don't throw error since this is cleanup
             return false;
         }
-    }
+    },
+
+    forceCloseExam,
 };
