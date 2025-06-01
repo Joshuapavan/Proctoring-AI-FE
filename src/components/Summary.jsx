@@ -1,11 +1,14 @@
-import React, { useEffect, useState } from 'react';
+import React, { useEffect, useState, useRef } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { Doughnut } from 'react-chartjs-2';
 import Swal from 'sweetalert2';
+import html2canvas from 'html2canvas';
+import jsPDF from 'jspdf';
 import { authService } from '../services/authService';
 import { examService } from '../services/examService';
 
 const Summary = () => {
+    const summaryRef = useRef(null);
     const [summary, setSummary] = useState(null);
     const [score, setScore] = useState(0);
     const [loading, setLoading] = useState(true);
@@ -148,6 +151,50 @@ const Summary = () => {
         }
     };
 
+    const handleDownloadPDF = async () => {
+        try {
+            Swal.fire({
+                title: 'Generating PDF',
+                html: 'Please wait...',
+                allowOutsideClick: false,
+                didOpen: () => {
+                    Swal.showLoading();
+                }
+            });
+
+            const content = summaryRef.current;
+            const canvas = await html2canvas(content, {
+                scale: 2,
+                backgroundColor: '#1a1a1a',
+                logging: false
+            });
+
+            const imgWidth = 210; // A4 width in mm
+            const imgHeight = (canvas.height * imgWidth) / canvas.width;
+            const pdf = new jsPDF('p', 'mm', 'a4');
+            
+            pdf.addImage(canvas.toDataURL('image/png'), 'PNG', 0, 0, imgWidth, imgHeight);
+            pdf.save(`exam_summary_${localStorage.getItem('userId')}.pdf`);
+
+            await Swal.fire({
+                icon: 'success',
+                title: 'Download Complete',
+                text: 'Your exam summary has been downloaded successfully.',
+                background: '#2a2a2a',
+                color: '#fff'
+            });
+        } catch (error) {
+            console.error('PDF generation error:', error);
+            Swal.fire({
+                icon: 'error',
+                title: 'Download Failed',
+                text: 'Failed to generate PDF. Please try again.',
+                background: '#2a2a2a',
+                color: '#fff'
+            });
+        }
+    };
+
     if (loading) {
         return (
             <div className="summary-loading">
@@ -161,89 +208,94 @@ const Summary = () => {
 
     return (
         <div className="summary-container">
-            <div className="summary-header">
-                <h1>Exam Results</h1>
-                <div className="header-stats">
-                    <div className="stat-card primary">
-                        <h3>Score</h3>
-                        <div className="score-display">
-                            <strong>{score}</strong>
-                            <span>/3</span>
+            <div ref={summaryRef}>
+                <div className="summary-header">
+                    <h1>Exam Results</h1>
+                    <div className="header-stats">
+                        <div className="stat-card primary">
+                            <h3>Score</h3>
+                            <div className="score-display">
+                                <strong>{score}</strong>
+                                <span>/3</span>
+                            </div>
+                            <p>Questions Correct</p>
                         </div>
-                        <p>Questions Correct</p>
-                    </div>
-                    <div className="stat-card secondary">
-                        <h3>Compliance Rate</h3>
-                        <div className="score-display">
-                            <strong>{summary.overall_compliance.toFixed(1)}%</strong>
-                        </div>
-                        <p>Overall Performance</p>
-                    </div>
-                </div>
-            </div>
-
-            <div className="summary-grid">
-                <div className="chart-section">
-                    <div className="section-card">
-                        <h3>Proctoring Analysis</h3>
-                        {renderSummaryChart()}
-                    </div>
-                </div>
-
-                <div className="metrics-section">
-                    <div className="section-card">
-                        <h3>Exam Metrics</h3>
-                        <div className="metrics-grid">
-                            <div className="metric-item">
-                                <span>Duration</span>
-                                <strong>{(summary.total_duration || 0).toFixed(1)} min</strong>
+                        <div className="stat-card secondary">
+                            <h3>Compliance Rate</h3>
+                            <div className="score-display">
+                                <strong>{summary.overall_compliance.toFixed(1)}%</strong>
                             </div>
-                            <div className="metric-item">
-                                <span>Face Detection</span>
-                                <strong>{(summary.face_detection_rate || 0).toFixed(1)}%</strong>
-                            </div>
-                            <div className="metric-item">
-                                <span>Warnings</span>
-                                <strong>{summary.warnings?.length || 0}</strong>
-                            </div>
-                            {examViolation && examViolation.type === 'copy-paste' && (
-                                <div className="metric-item violation">
-                                    <span>Violation</span>
-                                    <strong>Copy-Paste Detected</strong>
-                                </div>
-                            )}
+                            <p>Overall Performance</p>
                         </div>
                     </div>
                 </div>
 
-                {summary.suspicious_activities && (
-                    <div className="activity-section">
+                <div className="summary-grid">
+                    <div className="chart-section">
                         <div className="section-card">
-                            <h3>Suspicious Activity Log</h3>
-                            <div className="activity-list">
-                                {Object.entries(summary.suspicious_activities).map(([key, value]) => (
-                                    <div key={key} className="activity-item">
-                                        <div className="activity-icon">⚠️</div>
-                                        <div className="activity-details">
-                                            <span className="activity-name">{key.replace(/_/g, ' ')}</span>
-                                            <strong className="activity-count">{value}</strong>
-                                        </div>
+                            <h3>Proctoring Analysis</h3>
+                            {renderSummaryChart()}
+                        </div>
+                    </div>
+
+                    <div className="metrics-section">
+                        <div className="section-card">
+                            <h3>Exam Metrics</h3>
+                            <div className="metrics-grid">
+                                <div className="metric-item">
+                                    <span>Duration</span>
+                                    <strong>{(summary.total_duration || 0).toFixed(1)} min</strong>
+                                </div>
+                                <div className="metric-item">
+                                    <span>Face Detection</span>
+                                    <strong>{(summary.face_detection_rate || 0).toFixed(1)}%</strong>
+                                </div>
+                                <div className="metric-item">
+                                    <span>Warnings</span>
+                                    <strong>{summary.warnings?.length || 0}</strong>
+                                </div>
+                                {examViolation && examViolation.type === 'copy-paste' && (
+                                    <div className="metric-item violation">
+                                        <span>Violation</span>
+                                        <strong>Copy-Paste Detected</strong>
                                     </div>
-                                ))}
+                                )}
                             </div>
                         </div>
                     </div>
-                )}
 
-                {renderViolations()}
+                    {summary.suspicious_activities && (
+                        <div className="activity-section">
+                            <div className="section-card">
+                                <h3>Suspicious Activity Log</h3>
+                                <div className="activity-list">
+                                    {Object.entries(summary.suspicious_activities).map(([key, value]) => (
+                                        <div key={key} className="activity-item">
+                                            <div className="activity-icon">⚠️</div>
+                                            <div className="activity-details">
+                                                <span className="activity-name">{key.replace(/_/g, ' ')}</span>
+                                                <strong className="activity-count">{value}</strong>
+                                            </div>
+                                        </div>
+                                    ))}
+                                </div>
+                            </div>
+                        </div>
+                    )}
 
-                <div className="actions-section">
-                    <button onClick={handleLogout} className="action-button primary">
-                        Complete Exam & Logout
-                    </button>
-                    <button onClick={() => navigate('/exam')} className="action-button secondary">
-                        Back to Exam
-                    </button>
+                    {renderViolations()}
+
+                    <div className="actions-section">
+                        <button onClick={handleLogout} className="action-button primary">
+                            Complete Exam & Logout
+                        </button>
+                        <button onClick={handleDownloadPDF} className="action-button secondary">
+                            Download Summary
+                        </button>
+                        <button onClick={() => navigate('/exam')} className="action-button secondary">
+                            Back to Exam
+                        </button>
+                    </div>
                 </div>
             </div>
         </div>
