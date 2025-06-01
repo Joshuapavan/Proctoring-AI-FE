@@ -46,8 +46,9 @@ const Summary = () => {
                     icon: 'error',
                     title: 'Error',
                     text: 'Failed to load exam summary',
-                    background: '#2a2a2a',
-                    color: '#fff'
+                    background: '#ffffff',
+                    color: '#1e293b',
+                    confirmButtonColor: '#3b82f6'
                 });
                 navigate('/exam');
             } finally {
@@ -81,14 +82,14 @@ const Summary = () => {
                 legend: {
                     position: 'bottom',
                     labels: {
-                        color: '#fff',
+                        color: '#1e293b', // Updated from white to dark color
                         padding: 20,
                         font: { size: 14 }
                     }
                 }
             },
-            cutout: '65%',  // Make donut thinner
-            radius: '70%'   // Make overall chart smaller
+            cutout: '65%',
+            radius: '70%'
         };
 
         // Wrap chart in container with controlled dimensions
@@ -157,6 +158,9 @@ const Summary = () => {
                 title: 'Generating PDF',
                 html: 'Please wait...',
                 allowOutsideClick: false,
+                background: '#ffffff',
+                color: '#1e293b',
+                confirmButtonColor: '#3b82f6',
                 didOpen: () => {
                     Swal.showLoading();
                 }
@@ -180,8 +184,9 @@ const Summary = () => {
                 icon: 'success',
                 title: 'Download Complete',
                 text: 'Your exam summary has been downloaded successfully.',
-                background: '#2a2a2a',
-                color: '#fff'
+                background: '#ffffff',
+                color: '#1e293b',
+                confirmButtonColor: '#3b82f6'
             });
         } catch (error) {
             console.error('PDF generation error:', error);
@@ -189,8 +194,9 @@ const Summary = () => {
                 icon: 'error',
                 title: 'Download Failed',
                 text: 'Failed to generate PDF. Please try again.',
-                background: '#2a2a2a',
-                color: '#fff'
+                background: '#ffffff',
+                color: '#1e293b',
+                confirmButtonColor: '#3b82f6'
             });
         }
     };
@@ -207,7 +213,7 @@ const Summary = () => {
     if (!summary) return null;
 
     return (
-        <div className="summary-container">
+        <div className="summary-container" style={{ color: '#1e293b' }}>  {/* Added text color */}
             <div ref={summaryRef}>
                 <div className="summary-header">
                     <h1>Exam Results</h1>
@@ -268,11 +274,28 @@ const Summary = () => {
                         <div className="activity-section">
                             <div className="section-card">
                                 <h3>Suspicious Activity Log</h3>
-                                <div className="activity-list">
+                                <div className="activity-list" style={{
+                                    display: 'flex',
+                                    flexDirection: 'column',
+                                    gap: '1rem',
+                                    padding: '1rem'
+                                }}>
                                     {Object.entries(summary.suspicious_activities).map(([key, value]) => (
-                                        <div key={key} className="activity-item">
+                                        <div key={key} className="activity-item" style={{
+                                            display: 'flex',
+                                            alignItems: 'center',
+                                            gap: '1rem',
+                                            padding: '0.5rem',
+                                            backgroundColor: '#f8fafc',
+                                            borderRadius: '0.375rem'
+                                        }}>
                                             <div className="activity-icon">⚠️</div>
-                                            <div className="activity-details">
+                                            <div className="activity-details" style={{
+                                                display: 'flex',
+                                                justifyContent: 'space-between',
+                                                alignItems: 'center',
+                                                width: '100%'
+                                            }}>
                                                 <span className="activity-name">{key.replace(/_/g, ' ')}</span>
                                                 <strong className="activity-count">{value}</strong>
                                             </div>
@@ -285,14 +308,41 @@ const Summary = () => {
 
                     {renderViolations()}
 
-                    <div className="actions-section">
-                        <button onClick={handleLogout} className="action-button primary">
+                    <div className="actions-section" style={{
+                        display: 'flex',
+                        gap: '1rem',
+                        justifyContent: 'center',
+                        padding: '2rem',
+                        marginTop: '2rem'
+                    }}>
+                        <button onClick={handleLogout} className="action-button primary" style={{
+                            padding: '0.75rem 1.5rem',
+                            backgroundColor: '#3b82f6',
+                            color: 'white',
+                            border: 'none',
+                            borderRadius: '0.375rem',
+                            cursor: 'pointer'
+                        }}>
                             Complete Exam & Logout
                         </button>
-                        <button onClick={handleDownloadPDF} className="action-button secondary">
+                        <button onClick={handleDownloadPDF} className="action-button secondary" style={{
+                            padding: '0.75rem 1.5rem',
+                            backgroundColor: '#64748b',
+                            color: 'white',
+                            border: 'none',
+                            borderRadius: '0.375rem',
+                            cursor: 'pointer'
+                        }}>
                             Download Summary
                         </button>
-                        <button onClick={() => navigate('/exam')} className="action-button secondary">
+                        <button onClick={() => navigate('/exam')} className="action-button secondary" style={{
+                            padding: '0.75rem 1.5rem',
+                            backgroundColor: '#64748b',
+                            color: 'white',
+                            border: 'none',
+                            borderRadius: '0.375rem',
+                            cursor: 'pointer'
+                        }}>
                             Back to Exam
                         </button>
                     </div>

@@ -208,8 +208,8 @@ const Dashboard = () => {
             icon: 'error',
             title: 'Connection Error',
             text: error.message,
-            background: '#2a2a2a',
-            color: '#fff'
+            background: '#ffffff',
+            color: '#1e293b',
           });
         }
       }
@@ -301,9 +301,9 @@ const Dashboard = () => {
         icon: 'error',
         title: 'Error',
         text: err.message || 'Failed to fetch exam summary',
-        background: '#2a2a2a',
-        color: '#fff',
-        confirmButtonColor: '#646cff'
+        background: '#ffffff',
+        color: '#1e293b',
+        confirmButtonColor: '#3b82f6'
       });
     }
   };
@@ -381,8 +381,8 @@ const Dashboard = () => {
             willOpen: () => {
                 Swal.showLoading();
             },
-            background: '#2a2a2a',
-            color: '#fff'
+            background: '#ffffff',
+            color: '#1e293b',
         });
 
         try {
@@ -410,9 +410,9 @@ const Dashboard = () => {
                 icon: 'warning',
                 title: 'Warning',
                 text: 'Some cleanup operations failed, but your exam has been recorded.',
-                background: '#2a2a2a',
-                color: '#fff'
-            });
+                background: '#ffffff',
+                color: '#1e293b'
+          });
             navigate('/summary');
         }
     }
@@ -441,8 +441,8 @@ const handleFinishExam = async () => {
         willOpen: () => {
             Swal.showLoading();
         },
-        background: '#2a2a2a',
-        color: '#fff'
+          background: '#ffffff',
+          color: '#1e293b'
     });
 
     try {
@@ -470,8 +470,8 @@ const handleFinishExam = async () => {
             icon: 'error',
             title: 'Error',
             text: 'Failed to end exam properly. The exam will still be marked as complete.',
-            background: '#2a2a2a',
-            color: '#fff'
+            background: '#ffffff',
+  color: '#1e293b',
         });
         navigate('/summary');
     }
@@ -483,11 +483,11 @@ const handleFinishExam = async () => {
       text: 'Are you sure you want to end your session?',
       icon: 'warning',
       showCancelButton: true,
-      confirmButtonColor: '#646cff',
+      confirmButtonColor: '#3b82f6',
       cancelButtonColor: '#e74c3c',
       confirmButtonText: 'Yes, logout',
-      background: '#2a2a2a',
-      color: '#fff'
+      background: '#ffffff',
+      color: '#1e293b'
     }).then(async (result) => {
       if (result.isConfirmed) {
         try {

@@ -36,8 +36,8 @@ const Login = () => {
             text: 'Redirecting to dashboard...',
             timer: 1500,
             showConfirmButton: false,
-            background: '#2a2a2a',
-            color: '#fff'
+            background: '#ffffff',
+  color: '#1e293b',
         });
 
         navigate('/exam', { replace: true });
@@ -47,8 +47,8 @@ const Login = () => {
             icon: 'error',
             title: 'Login Error',
             text: error.message,
-            background: '#2a2a2a',
-            color: '#fff'
+            background: '#ffffff',
+  color: '#1e293b',
         });
     }
   };
