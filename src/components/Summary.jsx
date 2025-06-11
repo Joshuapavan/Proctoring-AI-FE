@@ -216,7 +216,7 @@ const Summary = () => {
                             <h3>Score</h3>
                             <div className="score-display">
                                 <strong>{score}</strong>
-                                <span>/3</span>
+                                <span>/5</span>
                             </div>
                             <p>Questions Correct</p>
                         </div>

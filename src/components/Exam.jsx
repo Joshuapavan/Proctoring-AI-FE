@@ -42,6 +42,23 @@ const javaQuestions = [
     question: "What is the default value of int variable?",
     options: ["0", "null", "undefined", "1"],
     correct: "0"
+  },
+  {
+    id: 4,
+    question: "What is the correct way to compare two strings in Java?",
+    options: ["str1 == str2", "str1.equals(str2)", "str1.compare(str2)", "str1.compareTo(str2) == 0"],
+    correct: "str1.equals(str2)"
+  },
+  {
+    id: 5,
+    question: "Which statement is true about constructors in Java inheritance?",
+    options: [
+      "A child class doesn't need to call parent constructor",
+      "super() must be the first statement in child constructor",
+      "super() can be called anywhere in child constructor",
+      "Constructor is not inherited by child class"
+    ],
+    correct: "super() must be the first statement in child constructor"
   }
 ];
 
@@ -56,7 +73,7 @@ const Exam = () => {
   const [connected, setConnected] = useState(false);
   const [summary, setSummary] = useState(null);
   const [examId, setExamId] = useState(localStorage.getItem('userId') || '1');
-  const [timeRemaining, setTimeRemaining] = useState(60); // 1 minute in seconds
+  const [timeRemaining, setTimeRemaining] = useState(7 * 60); // 7 minutes in seconds
   const timerRef = useRef(null);
   const [isReady, setIsReady] = useState(false);
   const [isInitializing, setIsInitializing] = useState(true);
