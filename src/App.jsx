@@ -52,7 +52,7 @@ const App = () => {
                             <Summary />
                         </ProtectedRoute>
                     } />
-                    <Route path="/" element={<Navigate to="/exam" replace />} />
+                    <Route path="/" element={<Navigate to="/login" replace />} />
                 </Routes>
             </BrowserRouter>
         </Provider>
