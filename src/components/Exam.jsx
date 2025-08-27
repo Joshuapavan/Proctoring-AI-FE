@@ -87,20 +87,30 @@ const Exam = () => {
 
   const showSideAlert = (type, attempt) => {
     const newWarning = {
-      type: type === 'tab' ? 'Tab Switching' : 'Copy-Paste',
-      attempt,
-      time: new Date().toLocaleTimeString()
+        type: type === 'tab' ? 'Tab Switching' : 'Copy-Paste',
+        attempt,
+        time: new Date().toISOString()  // Store as ISO string for consistency
     };
     
     setSideAlert(newWarning);
+    setWarnings(prev => [...prev, newWarning]);  // Store all warnings
+    
     const deduction = 10;
     setViolationScore(prev => Math.max(0, prev - deduction));
     
-    // Auto clear after 3 seconds
     setTimeout(() => setSideAlert(null), 3000);
   };
 
   const handleExamViolation = async (type, attempts) => {
+    // Store violation data with timestamp
+    localStorage.setItem('examViolations', JSON.stringify({
+        type,
+        attempts,
+        warnings: warnings,
+        complianceScore: violationScore,
+        timestamp: new Date().toISOString()  // Add timestamp
+    }));
+
     const messages = {
       'tab-switch': 'You have switched tabs too many times.',
       'copy-paste': 'You have attempted to copy-paste too many times.'

@@ -195,6 +195,17 @@ const Summary = () => {
         }
     };
 
+    const formatViolationDisplay = (key, value) => {
+        if (typeof value === 'object' && value.count && value.first_occurrence) {
+            return {
+                count: value.count,
+                timestamp: new Date(value.first_occurrence).toLocaleString(),
+                isFrequent: value.count > 10
+            };
+        }
+        return { count: value, timestamp: null, isFrequent: false };
+    };
+
     if (loading) {
         return (
             <div className="summary-loading">
@@ -269,15 +280,29 @@ const Summary = () => {
                             <div className="section-card">
                                 <h3>Suspicious Activity Log</h3>
                                 <div className="activity-list">
-                                    {Object.entries(summary.suspicious_activities).map(([key, value]) => (
-                                        <div key={key} className="activity-item">
-                                            <div className="activity-icon">⚠️</div>
-                                            <div className="activity-details">
-                                                <span className="activity-name">{key.replace(/_/g, ' ')}</span>
-                                                <strong className="activity-count">{value}</strong>
+                                    {Object.entries(summary.suspicious_activities).map(([key, value]) => {
+                                        const violation = formatViolationDisplay(key, value);
+                                        return (
+                                            <div key={key} className="activity-item">
+                                                <div className="activity-icon">⚠️</div>
+                                                <div className="activity-details">
+                                                    <span className="activity-name">
+                                                        {key.replace(/_/g, ' ')}
+                                                    </span>
+                                                    <div className="activity-info">
+                                                        <strong className="activity-count">
+                                                            Count: {violation.count}
+                                                        </strong>
+                                                        {violation.isFrequent && (
+                                                            <span className="violation-timestamp">
+                                                                at : {violation.timestamp}
+                                                            </span>
+                                                        )}
+                                                    </div>
+                                                </div>
                                             </div>
-                                        </div>
-                                    ))}
+                                        );
+                                    })}
                                 </div>
                             </div>
                         </div>
