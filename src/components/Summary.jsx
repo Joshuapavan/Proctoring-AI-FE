@@ -196,14 +196,10 @@ const Summary = () => {
     };
 
     const formatViolationDisplay = (key, value) => {
-        if (typeof value === 'object' && value.count && value.first_occurrence) {
-            return {
-                count: value.count,
-                timestamp: new Date(value.first_occurrence).toLocaleString(),
-                isFrequent: value.count > 10
-            };
-        }
-        return { count: value, timestamp: null, isFrequent: false };
+        return {
+            count: value.count,
+            timestamp: new Date(value.first_occurrence).toLocaleString()
+        };
     };
 
     if (loading) {
@@ -275,29 +271,26 @@ const Summary = () => {
                         </div>
                     </div>
 
-                    {summary.suspicious_activities && (
+                    {summary.suspicious_activities && Object.keys(summary.suspicious_activities).length > 0 && (
                         <div className="activity-section">
                             <div className="section-card">
-                                <h3>Suspicious Activity Log</h3>
+                                <h3>Major Violations</h3>
                                 <div className="activity-list">
                                     {Object.entries(summary.suspicious_activities).map(([key, value]) => {
                                         const violation = formatViolationDisplay(key, value);
                                         return (
-                                            <div key={key} className="activity-item">
-                                                <div className="activity-icon">⚠️</div>
+                                            <div key={key} className="activity-item high-severity">
                                                 <div className="activity-details">
                                                     <span className="activity-name">
                                                         {key.replace(/_/g, ' ')}
                                                     </span>
                                                     <div className="activity-info">
                                                         <strong className="activity-count">
-                                                            Count: {violation.count}
+                                                            count: {violation.count} 
                                                         </strong>
-                                                        {violation.isFrequent && (
-                                                            <span className="violation-timestamp">
-                                                                at : {violation.timestamp}
-                                                            </span>
-                                                        )}
+                                                        <span className="violation-timestamp">
+                                                            at {violation.timestamp}
+                                                        </span>
                                                     </div>
                                                 </div>
                                             </div>
@@ -328,3 +321,4 @@ const Summary = () => {
 };
 
 export default Summary;
+

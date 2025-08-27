@@ -36,3 +36,22 @@
     color: #e74c3c;
     font-weight: 600;
 }
+
+.high-severity {
+    background: rgba(231, 76, 60, 0.1);
+    border-left: 4px solid #e74c3c;
+}
+
+.activity-note {
+    margin-top: 16px;
+    padding-top: 12px;
+    border-top: 1px solid rgba(255, 255, 255, 0.1);
+    font-size: 0.85em;
+    color: #888;
+    text-align: center;
+}
+
+.activity-icon {
+    margin-right: 12px;
+    font-size: 1.2em;
+}
