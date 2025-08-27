@@ -10,6 +10,7 @@ import { examService } from '../services/examService';
 const Summary = () => {
     const summaryRef = useRef(null);
     const [summary, setSummary] = useState(null);
+    const [userImage, setUserImage] = useState(null);
     const [score, setScore] = useState(0);
     const [loading, setLoading] = useState(true);
     const [examViolation, setExamViolation] = useState(null);
@@ -38,8 +39,19 @@ const Summary = () => {
                     total_duration: summaryData.total_duration || 0,
                     face_detection_rate: summaryData.face_detection_rate || 0,
                     suspicious_activities: summaryData.suspicious_activities || {},
-                    warnings: summaryData.warnings || []
+                    warnings: summaryData.warnings || [],
+                    user: summaryData.user || {}
                 });
+
+                if (summaryData.user?.image) {
+                    const img = new Image();
+                    img.src = `data:image/jpeg;base64,${summaryData.user.image}`;
+                    await new Promise((resolve) => {
+                        img.onload = resolve;
+                    });
+                    setUserImage(img);
+                }
+
             } catch (error) {
                 console.error('Error loading summary:', error);
                 Swal.fire({
@@ -87,11 +99,10 @@ const Summary = () => {
                     }
                 }
             },
-            cutout: '65%',  // Make donut thinner
-            radius: '70%'   // Make overall chart smaller
+            cutout: '65%',
+            radius: '70%'
         };
 
-        // Wrap chart in container with controlled dimensions
         return (
             <div style={{ width: '300px', height: '300px', margin: '0 auto' }}>
                 <Doughnut data={data} options={options} />
@@ -134,18 +145,15 @@ const Summary = () => {
 
     const handleLogout = async () => {
         try {
-            // Clear logs first
             const userId = localStorage.getItem('userId');
             if (userId) {
                 await examService.clearLogs(userId);
             }
 
-            // Then proceed with logout
             authService.logout();
             navigate('/login', { replace: true });
         } catch (error) {
             console.warn('Logout error:', error);
-            // Still proceed with logout even if clearing logs fails
             authService.logout();
             navigate('/login', { replace: true });
         }
@@ -162,18 +170,93 @@ const Summary = () => {
                 }
             });
 
-            const content = summaryRef.current;
-            const canvas = await html2canvas(content, {
-                scale: 2,
-                backgroundColor: '#1a1a1a',
-                logging: false
-            });
-
-            const imgWidth = 210; // A4 width in mm
-            const imgHeight = (canvas.height * imgWidth) / canvas.width;
             const pdf = new jsPDF('p', 'mm', 'a4');
+            const pageWidth = pdf.internal.pageSize.width;
+            let yPosition = 15;
+            const lineHeight = 7;
+
+            // Title and header info
+            pdf.setFont('helvetica', 'bold');
+            pdf.setFontSize(20);
+            pdf.setTextColor(0, 0, 0);
+            pdf.text('Exam Report', pageWidth / 2, yPosition, { align: 'center' });
             
-            pdf.addImage(canvas.toDataURL('image/png'), 'PNG', 0, 0, imgWidth, imgHeight);
+            yPosition += lineHeight * 2;
+            pdf.setFontSize(12);
+            pdf.text(`Generated on: ${new Date().toLocaleString()}`, pageWidth / 2, yPosition, { align: 'center' });
+            
+            // User Info
+            yPosition += lineHeight * 2;
+            if (summary.user?.email) {
+                pdf.text(`Candidate: ${summary.user.email}`, pageWidth / 2, yPosition, { align: 'center' });
+            }
+
+            // Add user image if available
+            if (summary.user?.image) {
+                yPosition += lineHeight * 2;
+                const imgData = `data:image/jpeg;base64,${summary.user.image}`;
+                const imgProps = pdf.getImageProperties(imgData);
+                const imgWidth = 50;
+                const imgHeight = (imgProps.height * imgWidth) / imgProps.width;
+                pdf.addImage(imgData, 'JPEG', (pageWidth - imgWidth) / 2, yPosition, imgWidth, imgHeight);
+                yPosition += imgHeight + lineHeight;
+            }
+
+            // Score and Compliance
+            yPosition += lineHeight * 2;
+            pdf.setFontSize(14);
+            pdf.text('Exam Performance', pageWidth / 2, yPosition, { align: 'center' });
+            
+            yPosition += lineHeight;
+            pdf.setFontSize(12);
+            pdf.setFont('helvetica', 'normal');
+            pdf.text(`Score: ${score}/5`, 20, yPosition);
+            pdf.text(`Compliance Rate: ${summary.overall_compliance.toFixed(1)}%`, 20, yPosition + lineHeight);
+            pdf.text(`Duration: ${summary.total_duration.toFixed(1)} minutes`, 20, yPosition + lineHeight * 2);
+            pdf.text(`Face Detection Rate: ${summary.face_detection_rate.toFixed(1)}%`, 20, yPosition + lineHeight * 3);
+
+            // Violations Section
+            yPosition += lineHeight * 5;
+            pdf.setFont('helvetica', 'bold');
+            pdf.text('Major Violations', 20, yPosition);
+            
+            yPosition += lineHeight;
+            pdf.setFont('helvetica', 'normal');
+            if (Object.keys(summary.suspicious_activities).length > 0) {
+                Object.entries(summary.suspicious_activities).forEach(([key, value]) => {
+                    const violation = formatViolationDisplay(key, value);
+                    yPosition += lineHeight;
+                    const violationText = `${key.replace(/_/g, ' ')} - Count: ${violation.count}`;
+                    pdf.text(violationText, 25, yPosition);
+                    yPosition += lineHeight - 2;
+                    pdf.setFontSize(10);
+                    pdf.text(`First occurred at: ${violation.timestamp}`, 30, yPosition);
+                    pdf.setFontSize(12);
+                });
+            } else {
+                yPosition += lineHeight;
+                pdf.text('No major violations detected', 25, yPosition);
+            }
+
+            // Add warnings if available
+            if (summary.warnings?.length > 0) {
+                yPosition += lineHeight * 2;
+                pdf.setFont('helvetica', 'bold');
+                pdf.text('Warnings', 20, yPosition);
+                pdf.setFont('helvetica', 'normal');
+                summary.warnings.forEach(warning => {
+                    yPosition += lineHeight;
+                    pdf.text(`• ${warning}`, 25, yPosition);
+                });
+            }
+
+            // Footer
+            pdf.setFontSize(10);
+            pdf.setTextColor(128, 128, 128);
+            const footer = 'AI Proctoring System - Exam Report';
+            pdf.text(footer, pageWidth / 2, pdf.internal.pageSize.height - 10, { align: 'center' });
+
+            // Save the PDF
             pdf.save(`exam_summary_${localStorage.getItem('userId')}.pdf`);
 
             await Swal.fire({
@@ -202,6 +285,25 @@ const Summary = () => {
         };
     };
 
+    const renderUserInfo = () => {
+        if (!summary?.user) return null;
+        return (
+            <div className="user-info-section">
+                {/* {userImage && (
+                    <div className="user-image">
+                        <img 
+                            src={`data:image/jpeg;base64,${summary.user.image}`}
+                            alt="User"
+                        />
+                    </div>
+                )} */}
+                <div className="user-details">
+                    <span className="user-email">{summary.user.email}</span>
+                </div>
+            </div>
+        );
+    };
+
     if (loading) {
         return (
             <div className="summary-loading">
@@ -216,6 +318,7 @@ const Summary = () => {
     return (
         <div className="summary-container">
             <div ref={summaryRef}>
+                {renderUserInfo()}
                 <div className="summary-header">
                     <h1>Exam Results</h1>
                     <div className="header-stats">
